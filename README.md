@@ -1,11 +1,30 @@
 # bibtools
 
-**Automated bibtex verification tool** - validates your bibtex entries against official sources (CrossRef, arXiv).
+**Automated bibtex verification tool** — validate and fetch bibtex entries from official sources (CrossRef, DBLP, arXiv).
+
+## Why?
+
+Google Scholar often shows wrong venue for arXiv papers that were later published:
+
+| Paper | Venue | Google Scholar | bibtools |
+|-------|-------|----------------|----------|
+| TD-MPC | ICML 2022 | ❌ arXiv | ✓ ICML |
+| StreamingLLM | ICLR 2024 | ❌ arXiv 2023 | ✓ ICLR |
+| OpenVLA | CoRL 2024 | ❌ arXiv | ✓ CoRL |
+| UP-VLA | ICML 2025 | ❌ arXiv | ✓ ICML |
+
+```
+$ bibtools fetch ARXIV:2203.04955
+Found: Temporal Difference Learning for Model Predictive Control
+Source: dblp | Venue: ICML | Year: 2022
+```
+
+→ [Full comparison](comparison.md)
 
 ## What it does
 
-1. **verify** - Compare existing .bib entries against official metadata
-2. **fetch** - Generate bibtex from DOI or arXiv ID
+1. **fetch** - Get bibtex from paper ID (arXiv, DOI, etc.)
+2. **verify** - Check existing .bib entries against official metadata
 3. **search** - Search papers by title and generate bibtex
 
 ## How it works
@@ -40,15 +59,15 @@ Compare with existing entry → PASS / WARNING / FAIL
 | No DOI, venue != arXiv | **DBLP** |
 | No DOI, venue == arXiv | **arXiv** |
 
-- **Semantic Scholar** - ID resolution + venue detection (determines which source to use)
+Semantic Scholar is used to resolve paper IDs and detect venue, which determines which source to use.
 
 ## Is it reliable?
 
 bibtools does **NOT generate or guess metadata**.
-It uses data from official sources only:
-- **CrossRef** - Official DOI registry (publisher-submitted)
-- **DBLP** - Computer science bibliography (for venues without DOI like ICLR)
-- **arXiv** - Preprint source
+It fetches data from official sources only:
+- **CrossRef**: Official DOI registry with publisher-submitted metadata.
+- **DBLP**: Computer science bibliography, used for venues without DOI (e.g., ICLR).
+- **arXiv**: Used for preprints.
 
 Semantic Scholar is used only for identifier resolution, not as a metadata source.
 

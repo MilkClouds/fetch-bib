@@ -4,7 +4,7 @@ Comparison of BibTeX from **Google Scholar**, **Official sources**, and **bibtoo
 
 ## Summary
 
-**Google Scholar often has wrong venue/year for arXiv papers that were later published at conferences.** Out of 10 test papers, GS had critical errors in 3 cases (StreamingLLM, Hi Robot, FLOWER) where it showed "arXiv" instead of the actual conference. GS also uses lowercase titles and sometimes fabricates metadata (LoRA's fake volume/number/pages).
+**Google Scholar often has wrong venue/year for arXiv papers that were later published at conferences.** Out of 13 test papers, GS showed "arXiv" instead of the actual conference in 6 cases (TD-MPC, StreamingLLM, OpenVLA, Hi Robot, UP-VLA, FLOWER).
 
 **bibtools relies on Semantic Scholar**, which may not yet have updated venue info for very recent publications. FLOWER (CoRL 2025) is an example where Semantic Scholar still shows arXiv.
 
@@ -76,7 +76,7 @@ bibtools: Not indexed in Semantic Scholar.
 | venue | ICLR (as @article) | International Conference on Learning Representations | ICLR |
 | year | 2022 | 2022 | 2022 |
 
-GS uses `@article` with fake volume=1, number=2, pages=3.
+GS uses `@article` with volume=1, number=2, pages=3 (not found in official sources).
 
 ---
 
@@ -204,7 +204,7 @@ All sources agree (paper is arXiv-only).
 1. **Wrong venue**: Shows "arXiv preprint" for conference papers (TD-MPC, StreamingLLM, OpenVLA, Hi Robot, UP-VLA, FLOWER)
 2. **Wrong year**: Shows arXiv submission year instead of publication year
 3. **Wrong type**: Uses `@article` for conference papers
-4. **Fake metadata**: Invents volume/number/pages (LoRA)
+4. **Unverified metadata**: Includes volume/number/pages not found in official sources (LoRA)
 5. **Lowercase titles**: Does not preserve title case
 6. **Author truncation**: Uses "and others" instead of full list
 
