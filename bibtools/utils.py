@@ -3,6 +3,76 @@
 import re
 from difflib import SequenceMatcher
 
+# Unicode to LaTeX mapping for Greek letters and other special characters
+UNICODE_TO_LATEX: dict[str, str] = {
+    # Greek lowercase
+    "α": r"\alpha",
+    "β": r"\beta",
+    "γ": r"\gamma",
+    "δ": r"\delta",
+    "ε": r"\epsilon",
+    "ζ": r"\zeta",
+    "η": r"\eta",
+    "θ": r"\theta",
+    "ι": r"\iota",
+    "κ": r"\kappa",
+    "λ": r"\lambda",
+    "μ": r"\mu",
+    "ν": r"\nu",
+    "ξ": r"\xi",
+    "ο": "o",  # omicron - same as Latin o
+    "π": r"\pi",
+    "ρ": r"\rho",
+    "σ": r"\sigma",
+    "τ": r"\tau",
+    "υ": r"\upsilon",
+    "φ": r"\phi",
+    "χ": r"\chi",
+    "ψ": r"\psi",
+    "ω": r"\omega",
+    # Greek uppercase
+    "Α": "A",  # Alpha - same as Latin A
+    "Β": "B",  # Beta - same as Latin B
+    "Γ": r"\Gamma",
+    "Δ": r"\Delta",
+    "Ε": "E",  # Epsilon - same as Latin E
+    "Ζ": "Z",  # Zeta - same as Latin Z
+    "Η": "H",  # Eta - same as Latin H
+    "Θ": r"\Theta",
+    "Ι": "I",  # Iota - same as Latin I
+    "Κ": "K",  # Kappa - same as Latin K
+    "Λ": r"\Lambda",
+    "Μ": "M",  # Mu - same as Latin M
+    "Ν": "N",  # Nu - same as Latin N
+    "Ξ": r"\Xi",
+    "Ο": "O",  # Omicron - same as Latin O
+    "Π": r"\Pi",
+    "Ρ": "P",  # Rho - same as Latin P
+    "Σ": r"\Sigma",
+    "Τ": "T",  # Tau - same as Latin T
+    "Υ": r"\Upsilon",
+    "Φ": r"\Phi",
+    "Χ": "X",  # Chi - same as Latin X
+    "Ψ": r"\Psi",
+    "Ω": r"\Omega",
+}
+
+
+def unicode_to_latex(text: str) -> str:
+    """Convert Unicode special characters to LaTeX commands.
+
+    Replaces Greek letters and other special characters with their LaTeX equivalents.
+
+    Args:
+        text: Input text possibly containing Unicode characters.
+
+    Returns:
+        Text with Unicode characters replaced by LaTeX commands.
+    """
+    for char, latex in UNICODE_TO_LATEX.items():
+        text = text.replace(char, latex)
+    return text
+
 
 def strip_latex_braces(title: str) -> str:
     """Strip LaTeX braces from title.
