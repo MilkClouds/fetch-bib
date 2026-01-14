@@ -18,11 +18,13 @@ Comparison of BibTeX from **Google Scholar**, **Official sources**, and **bibtoo
 | Deep Residual Learning for Image Recognition | CVPR 2016 | ✓ | ✓ | ✓ |
 | Attention Is All You Need | NeurIPS 2017 | ✓ | ✓ | ✓ |
 | LoRA: Low-Rank Adaptation of Large Language Models | ICLR 2022 | ✓ | ✓ | ✓ |
+| TD-MPC | ICML 2022 | ✗ arXiv | ✓ | ✓ |
 | Scalable Diffusion Models with Transformers | ICCV 2023 | ✓ | ✓ | ✓ |
 | Efficient Streaming Language Models with Attention Sinks | ICLR 2024 | ✗ arXiv 2023 | ✓ | ✓ |
 | OpenVLA | CoRL 2024 | ✗ arXiv 2024 | ✓ | ✓ (catches [DBLP error](#7-openvla-corl-2024-️)) |
 | HAMLET | arXiv 2025 | ✓ | ✓ | ✓ |
 | Hi Robot | ICML 2025 | ✗ arXiv | ✓ | ✓ (catches [DBLP error](#10-hi-robot-icml-2025-️)) |
+| UP-VLA | ICML 2025 | ✗ arXiv | ✓ | ✓ |
 | Sliding Windows Are Not the End | ACL 2025 | ✓ | ✓ | ✓ |
 | FLOWER | CoRL 2025 | ✗ arXiv | ✓ | ✗ arXiv |
 
@@ -75,6 +77,19 @@ bibtools: Not indexed in Semantic Scholar.
 | year | 2022 | 2022 | 2022 |
 
 GS uses `@article` with fake volume=1, number=2, pages=3.
+
+---
+
+### 4b. TD-MPC (ICML 2022) ⚠️
+
+| | Google Scholar | Official | bibtools |
+|-|----------------|----------|----------|
+| title | Temporal difference learning... | Temporal Difference Learning... | Temporal Difference Learning... |
+| author | Hansen, Nicklas and ... | Hansen, Nicklas A and ... | Hansen, Nicklas and ... |
+| venue | **arXiv preprint** ❌ | ICML (PMLR) | ICML |
+| year | 2022 | 2022 | 2022 |
+
+**GS shows arXiv, but the paper was published at ICML 2022.**
 
 ---
 
@@ -145,6 +160,19 @@ All sources agree (paper is arXiv-only).
 
 ---
 
+### 10b. UP-VLA (ICML 2025) ⚠️
+
+| | Google Scholar | Official | bibtools |
+|-|----------------|----------|----------|
+| title | Up-vla: A unified understanding... | UP-VLA: A Unified Understanding... | UP-VLA: A Unified Understanding... |
+| author | Zhang, Jianke and ... | Zhang, Jianke and ... | Zhang, Jianke and ... |
+| venue | **arXiv preprint** ❌ | ICML | ICML |
+| year | 2025 | 2025 | 2025 |
+
+**GS shows arXiv, but the paper was accepted at ICML 2025.**
+
+---
+
 ### 11. Sliding Windows (ACL 2025)
 
 | | Google Scholar | Official | bibtools |
@@ -173,7 +201,7 @@ All sources agree (paper is arXiv-only).
 
 ## Common Google Scholar Errors
 
-1. **Wrong venue**: Shows "arXiv preprint" for conference papers (StreamingLLM, OpenVLA, Hi Robot, FLOWER)
+1. **Wrong venue**: Shows "arXiv preprint" for conference papers (TD-MPC, StreamingLLM, OpenVLA, Hi Robot, UP-VLA, FLOWER)
 2. **Wrong year**: Shows arXiv submission year instead of publication year
 3. **Wrong type**: Uses `@article` for conference papers
 4. **Fake metadata**: Invents volume/number/pages (LoRA)
