@@ -1,6 +1,6 @@
 [project]
 name = "bibtools"
-version = "0.2.0"
+dynamic = ["version"]
 description = "CLI tool to verify and generate bibtex entries using Semantic Scholar API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,11 +24,14 @@ dev = [
 bibtools = "bibtools.cli:app"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["bibtools"]
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "bibtools/_version.py"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

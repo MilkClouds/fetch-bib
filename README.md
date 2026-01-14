@@ -1,11 +1,45 @@
 # bibtools
 
-**Automated bibtex verification tool** - validates your bibtex entries against official sources (CrossRef, arXiv).
+**Automated bibtex verification tool** — validate and fetch bibtex entries from official sources (CrossRef, DBLP, arXiv).
+
+## Why?
+
+**Google Scholar and Semantic Scholar have errors across all fields** (tested on [13 papers](comparison.md)):
+
+| | GS | S2 | bibtools |
+|---|---|---|---|
+| venue | 6/13 wrong (arXiv) | 7/13 wrong (arXiv) | 1/13 wrong* |
+| year | 1/13 wrong | 5/13 wrong | ✓ |
+| title | Lowercases acronyms | ✓ | ✓ |
+| author | Truncates ("and others") | Abbreviates, missing/extra | ✓ |
+
+\* FLOWER (CoRL 2025) — too recent for DBLP/S2 to have updated
+
+**Official sources are always correct** but require manual effort.
+
+**bibtools matches official sources** by fetching from CrossRef/DBLP/arXiv directly:
+
+| Paper | Venue | GS | S2 | Official | bibtools |
+|-------|-------|:--:|:--:|:--------:|:--------:|
+| ResNet | CVPR 2016 | ✓ | ✗ year | ✓ | ✓ |
+| Attention Is All You Need | NeurIPS 2017 | ✓ | ✓ | ✓ | ✓ |
+| DiT | ICCV 2023 | ✓ | ✗ year | ✓ | ✓ |
+| StreamingLLM | ICLR 2024 | ✗ arXiv | ✗ arXiv | ✓ | ✓ |
+| UP-VLA | ICML 2025 | ✗ arXiv | ✗ arXiv | ✓ | ✓ |
+| Sliding Windows Are Not the End | ACL 2025 | ✓ | ✗ arXiv | ✓ | ✓ |
+| FLOWER | CoRL 2025 | ✗ arXiv | ✗ arXiv | ✓ | ✗ arXiv |
+
+```
+$ bibtools fetch ARXIV:2106.09685   # LoRA
+Source: dblp | Venue: ICLR | Year: 2022
+```
+
+→ [Full comparison](comparison.md)
 
 ## What it does
 
-1. **verify** - Compare existing .bib entries against official metadata
-2. **fetch** - Generate bibtex from DOI or arXiv ID
+1. **fetch** - Get bibtex from paper ID (arXiv, DOI, etc.)
+2. **verify** - Check existing .bib entries against official metadata
 3. **search** - Search papers by title and generate bibtex
 
 ## How it works
@@ -40,15 +74,15 @@ Compare with existing entry → PASS / WARNING / FAIL
 | No DOI, venue != arXiv | **DBLP** |
 | No DOI, venue == arXiv | **arXiv** |
 
-- **Semantic Scholar** - ID resolution + venue detection (determines which source to use)
+Semantic Scholar is used to resolve paper IDs and detect venue, which determines which source to use.
 
 ## Is it reliable?
 
 bibtools does **NOT generate or guess metadata**.
-It uses data from official sources only:
-- **CrossRef** - Official DOI registry (publisher-submitted)
-- **DBLP** - Computer science bibliography (for venues without DOI like ICLR)
-- **arXiv** - Preprint source
+It fetches data from official sources only:
+- **CrossRef**: Official DOI registry with publisher-submitted metadata.
+- **DBLP**: Computer science bibliography, used for venues without DOI (e.g., ICLR).
+- **arXiv**: Used for preprints.
 
 Semantic Scholar is used only for identifier resolution, not as a metadata source.
 
