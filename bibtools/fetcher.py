@@ -18,6 +18,7 @@ from . import logging as logger
 from .models import Author, PaperMetadata
 from .rate_limiter import get_rate_limiter
 from .semantic_scholar import ResolvedIds, SemanticScholarClient
+from .utils import unicode_to_latex
 from .venue_aliases import get_canonical_venue
 
 # =============================================================================
@@ -67,7 +68,7 @@ class ArxivClient:
             authors = [a for a in authors if a]
 
             return ArxivMetadata(
-                title=paper.title,
+                title=unicode_to_latex(paper.title),
                 authors=authors,
                 year=paper.published.year,
                 arxiv_id=normalized_id,
