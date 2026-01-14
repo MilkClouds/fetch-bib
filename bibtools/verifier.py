@@ -730,26 +730,42 @@ class BibVerifier:
         return content[: match.start()] + updated_entry + content[match.end() :]
 
     def _replace_field(self, entry_text: str, field_name: str, new_value: str) -> str:
-        """Replace a field value in an entry, handling nested braces."""
+        """Replace a field value in an entry, handling nested braces, quotes, and bare values."""
         match = re.search(rf"(\s*)({re.escape(field_name)}\s*=\s*)", entry_text, re.IGNORECASE)
         if not match:
             return entry_text
 
         start = match.end()
-        if start >= len(entry_text) or entry_text[start] != "{":
+        if start >= len(entry_text):
             return entry_text
 
-        # Find matching closing brace (handle nested braces)
-        depth, i = 1, start + 1
-        while i < len(entry_text) and depth > 0:
-            if entry_text[i] == "{":
-                depth += 1
-            elif entry_text[i] == "}":
-                depth -= 1
-            i += 1
+        open_char = entry_text[start]
+        end_pos = -1
 
-        if depth != 0:
+        if open_char == "{":
+            # Find matching closing brace (handle nested braces)
+            depth, i = 1, start + 1
+            while i < len(entry_text) and depth > 0:
+                if entry_text[i] == "{":
+                    depth += 1
+                elif entry_text[i] == "}":
+                    depth -= 1
+                i += 1
+            if depth == 0:
+                end_pos = i
+        elif open_char == '"':
+            # Find matching closing quote (simple version, no escaped quotes)
+            i = entry_text.find('"', start + 1)
+            if i != -1:
+                end_pos = i + 1
+        else:
+            # Handle bare values (like year = 2024). Value ends at comma or closing brace.
+            end_match = re.search(r"[,}]", entry_text[start:])
+            if end_match:
+                end_pos = start + end_match.start()
+
+        if end_pos == -1:
             return entry_text
 
         new_field = f"{match.group(1)}{match.group(2)}{{{new_value}}}"
-        return entry_text[: match.start()] + new_field + entry_text[i:]
+        return entry_text[: match.start()] + new_field + entry_text[end_pos:]
