@@ -120,17 +120,16 @@ def venues_match(venue1: str, venue2: str) -> bool:
 
     # Check if one is a substring of the other (for partial matches)
     # e.g., "CoRL 2023" contains "CoRL"
-    if canonical1 and canonical1 in norm2:
+    if canonical1 and canonical1.lower() in norm2:
         return True
-    if canonical2 and canonical2 in norm1:
+    if canonical2 and canonical2.lower() in norm1:
         return True
 
-    # Check alias sets for substring matches
+    # Check alias sets: both venues must match the same alias group
     for aliases in VENUE_ALIASES.values():
-        matches = [a for a in aliases if a in norm1 or a in norm2]
-        if len(matches) >= 2:
-            return True
-        if matches and (norm1 in aliases or norm2 in aliases):
+        match1 = any(a in norm1 for a in aliases)
+        match2 = any(a in norm2 for a in aliases)
+        if match1 and match2:
             return True
 
     return False

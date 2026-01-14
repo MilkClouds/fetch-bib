@@ -1,10 +1,49 @@
-"""Data models for bibtex verification."""
+"""Data models for bibtex verification and generation."""
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from enum import IntEnum
+from typing import TypedDict
+
+# =============================================================================
+# Paper Metadata Models
+# =============================================================================
+
+
+class Author(TypedDict):
+    """Author name structure used across all API clients."""
+
+    given: str  # First/given name (can be empty string for single-name authors)
+    family: str  # Last/family name
+
+
+@dataclass
+class PaperMetadata:
+    """Unified paper metadata from CrossRef or arXiv."""
+
+    title: str
+    authors: list[Author]
+    year: int | None
+    venue: str | None
+    doi: str | None = None
+    arxiv_id: str | None = None
+    source: str = ""  # "crossref" or "arxiv"
+
+    def get_authors_str(self) -> str:
+        """Get authors as bibtex-style string ('First Last and First Last')."""
+        from .utils import format_author_bibtex_style
+
+        formatted = [format_author_bibtex_style(a.get("given", ""), a.get("family", "")) for a in self.authors]
+        return " and ".join(formatted)
+
+
+@dataclass
+class FetchResult:
+    """Result of fetching paper metadata and generating bibtex."""
+
+    bibtex: str
+    metadata: PaperMetadata
 
 
 class VerificationStatus(IntEnum):
@@ -33,64 +72,6 @@ class BibtexEntry:
     venue: str | None
     year: int | None
     entry_type: str = "inproceedings"  # "article" or "inproceedings"
-
-    @classmethod
-    def from_raw_bibtex(cls, raw_bibtex: str) -> BibtexEntry | None:
-        """Parse raw bibtex string into BibtexEntry.
-
-        Args:
-            raw_bibtex: Raw bibtex string from Semantic Scholar.
-
-        Returns:
-            BibtexEntry or None if parsing fails.
-        """
-        if not raw_bibtex:
-            return None
-
-        # Extract entry type and key
-        entry_match = re.match(r"@(\w+)\s*\{\s*([^,]+),", raw_bibtex, re.IGNORECASE)
-        if not entry_match:
-            return None
-
-        entry_type_raw = entry_match.group(1).lower()
-        key = entry_match.group(2).strip()
-
-        # Normalize entry type
-        entry_type = "article" if entry_type_raw == "article" else "inproceedings"
-
-        # Extract fields (use word boundary to avoid "title" matching "booktitle")
-        def extract_field(name: str) -> str | None:
-            pattern = rf"(?:^|[,\s]){name}\s*=\s*[\{{\"](.*?)[\}}\"]"
-            match = re.search(pattern, raw_bibtex, re.IGNORECASE | re.DOTALL | re.MULTILINE)
-            return match.group(1).strip() if match else None
-
-        title = extract_field("title") or ""
-
-        # Require title to be present for a valid entry
-        if not title:
-            return None
-
-        # Parse authors
-        author_str = extract_field("author")
-        authors = []
-        if author_str:
-            authors = [a.strip() for a in author_str.split(" and ") if a.strip()]
-
-        # Venue: booktitle (conference) or journal (article)
-        venue = extract_field("booktitle") or extract_field("journal")
-
-        # Year
-        year_str = extract_field("year")
-        year = int(year_str) if year_str and year_str.isdigit() else None
-
-        return cls(
-            key=key,
-            title=title,
-            authors=authors,
-            venue=venue,
-            year=year,
-            entry_type=entry_type,
-        )
 
     def to_bibtex(self, paper_id: str | None = None) -> str:
         """Serialize to normalized bibtex string.
@@ -122,59 +103,15 @@ class BibtexEntry:
             return f"% paper_id: {paper_id}\n{bibtex}"
         return bibtex
 
-    def get_venue_short(self) -> str | None:
-        """Get a short venue name for the verification comment."""
-        if not self.venue:
-            return None
-
-        from .venue_aliases import get_venue_short as _get_venue_short
-
-        return _get_venue_short(self.venue)
-
-
-@dataclass
-class PaperInfo:
-    """Paper information from Semantic Scholar.
-
-    Contains only paper_id and bibtex entry.
-    All other fields are accessed via bibtex property.
-    """
-
-    paper_id: str
-    bibtex: BibtexEntry
-
-    @property
-    def title(self) -> str:
-        """Get title from bibtex."""
-        return self.bibtex.title
-
-    @property
-    def authors(self) -> list[str]:
-        """Get authors from bibtex."""
-        return self.bibtex.authors
-
-    @property
-    def venue(self) -> str | None:
-        """Get venue from bibtex."""
-        return self.bibtex.venue
-
-    @property
-    def year(self) -> int | None:
-        """Get year from bibtex."""
-        return self.bibtex.year
-
-    def get_venue_short(self) -> str | None:
-        """Get a short venue name for the verification comment."""
-        return self.bibtex.get_venue_short()
-
 
 @dataclass
 class FieldMismatch:
-    """Information about a field mismatch between bibtex and Semantic Scholar."""
+    """Information about a field mismatch between bibtex and fetched source."""
 
     field_name: str
     bibtex_value: str
-    semantic_scholar_value: str
+    fetched_value: str  # From CrossRef/arXiv/S2
+    source: str = ""  # "crossref", "arxiv", or "S2"
     similarity: float | None = None  # For title comparison
     is_warning: bool = False  # True if only differs by LaTeX braces (not a hard error)
 
@@ -186,7 +123,7 @@ class VerificationResult:
     entry_key: str
     success: bool
     message: str
-    paper_info: PaperInfo | None = None
+    metadata: PaperMetadata | None = None  # Metadata from CrossRef/arXiv
     already_verified: bool = False
     needs_update: bool = False
     no_paper_id: bool = False  # Entry has no paper_id (warning)

@@ -6,32 +6,49 @@ from typing import Callable
 
 import pytest
 
-from bibtools.models import BibtexEntry, PaperInfo
+from bibtools.models import PaperMetadata
+from bibtools.rate_limiter import reset_all_rate_limiters
 
 
 @pytest.fixture
-def make_paper() -> Callable[..., PaperInfo]:
-    """Fixture factory to create PaperInfo with BibtexEntry."""
+def make_metadata() -> Callable[..., PaperMetadata]:
+    """Fixture factory to create PaperMetadata for testing."""
 
-    def _make_paper(
-        paper_id: str,
+    def _make_metadata(
         title: str = "",
         authors: list[str] | None = None,
         venue: str | None = None,
         year: int | None = None,
-        entry_type: str = "inproceedings",
-    ) -> PaperInfo:
-        bibtex = BibtexEntry(
-            key=paper_id,
+        source: str = "crossref",
+        doi: str | None = None,
+        arxiv_id: str | None = None,
+    ) -> PaperMetadata:
+        # Convert simple author list to dict format
+        author_dicts = []
+        for author in authors or []:
+            parts = author.split()
+            if len(parts) >= 2:
+                author_dicts.append({"given": " ".join(parts[:-1]), "family": parts[-1]})
+            else:
+                author_dicts.append({"given": "", "family": author})
+        return PaperMetadata(
             title=title,
-            authors=authors or [],
+            authors=author_dicts,
             venue=venue,
             year=year,
-            entry_type=entry_type,
+            source=source,
+            doi=doi,
+            arxiv_id=arxiv_id,
         )
-        return PaperInfo(paper_id=paper_id, bibtex=bibtex)
 
-    return _make_paper
+    return _make_metadata
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    """Reset rate limiters before each test for isolation."""
+    reset_all_rate_limiters()
+    yield
 
 
 @pytest.fixture(autouse=True)

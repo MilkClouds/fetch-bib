@@ -86,24 +86,19 @@ class TestRateLimiter:
 class TestGetRateLimiter:
     """Tests for get_rate_limiter function."""
 
-    def test_returns_same_instance_for_same_key(self):
-        """Should return same limiter for same API key."""
-        limiter1 = get_rate_limiter("test_key_1")
-        limiter2 = get_rate_limiter("test_key_1")
+    def test_returns_same_instance_for_same_name(self):
+        """Should return same limiter for same name."""
+        limiter1 = get_rate_limiter("test_api_1", 1.0)
+        limiter2 = get_rate_limiter("test_api_1", 1.0)
         assert limiter1 is limiter2
 
-    def test_returns_different_instance_for_different_key(self):
-        """Should return different limiter for different API key."""
-        limiter1 = get_rate_limiter("test_key_a")
-        limiter2 = get_rate_limiter("test_key_b")
+    def test_returns_different_instance_for_different_name(self):
+        """Should return different limiter for different name."""
+        limiter1 = get_rate_limiter("test_api_a", 1.0)
+        limiter2 = get_rate_limiter("test_api_b", 1.0)
         assert limiter1 is not limiter2
 
-    def test_with_key_uses_1s_interval(self):
-        """With API key, should use 1 second interval."""
-        limiter = get_rate_limiter("some_api_key")
-        assert limiter.min_interval == 1.0
-
-    def test_without_key_uses_3s_interval(self):
-        """Without API key, should use 3 second interval."""
-        limiter = get_rate_limiter(None)
-        assert limiter.min_interval == 3.0
+    def test_uses_specified_interval(self):
+        """Should use the specified interval."""
+        limiter = get_rate_limiter("custom_api", 2.5)
+        assert limiter.min_interval == 2.5

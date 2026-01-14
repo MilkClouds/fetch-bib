@@ -1,17 +1,16 @@
-@inproceedings{shi2025hi,
-  title     = {Hi Robot: Open-Ended Instruction Following with Hierarchical Vision-Language-Action Models},
-  author    = {Lucy Xiaoyang Shi and brian ichter and Michael Robert Equi and Liyiming Ke and Karl Pertsch and Quan Vuong and James Tanner and Anna Walling and Haohuan Wang and Niccolo Fusai and Adrian Li-Bell and Danny Driess and Lachy Groom and Sergey Levine and Chelsea Finn},
-  booktitle = {Forty-second International Conference on Machine Learning},
-  year      = {2025},
-  url       = {https://openreview.net/forum?id=lNVHg9npif}
-}
-@inproceedings{Peebles_2023_ICCV,
-  author    = {Peebles, William and Xie, Saining},
-  title     = {Scalable Diffusion Models with Transformers},
-  booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
-  month     = {October},
-  year      = {2023},
-  pages     = {4195-4205}
+% Official BibTeX examples from publishers/conferences (sorted by year)
+@article{lecunDeepLearning2015,
+  title    = {Deep Learning},
+  author   = {LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey},
+  year     = 2015,
+  month    = may,
+  journal  = {Nature},
+  volume   = {521},
+  number   = {7553},
+  pages    = {436--444},
+  issn     = {1476-4687},
+  doi      = {10.1038/nature14539},
+  abstract = {Deep learning allows computational models that are composed of multiple processing layers to learn representations of data with multiple levels of abstraction. These methods have dramatically improved the state-of-the-art in speech recognition, visual object recognition, object detection and many other domains such as drug discovery and genomics. Deep learning discovers intricate structure in large data sets by using the backpropagation algorithm to indicate how a machine should change its internal parameters that are used to compute the representation in each layer from the representation in the previous layer. Deep convolutional nets have brought about breakthroughs in processing images, video, speech and audio, whereas recurrent nets have shone light on sequential data such as text and speech.}
 }
 @inproceedings{He_2016_CVPR,
   author    = {He, Kaiming and Zhang, Xiangyu and Ren, Shaoqing and Sun, Jian},
@@ -31,12 +30,73 @@
   volume    = {30},
   year      = {2017}
 }
+@inproceedings{hu2022lora,
+  title     = {Lo{RA}: Low-Rank Adaptation of Large Language Models},
+  author    = {Edward J Hu and yelong shen and Phillip Wallis and Zeyuan Allen-Zhu and Yuanzhi Li and Shean Wang and Lu Wang and Weizhu Chen},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2022},
+  url       = {https://openreview.net/forum?id=nZeVKeeFYf9}
+}
+@inproceedings{Peebles_2023_ICCV,
+  author    = {Peebles, William and Xie, Saining},
+  title     = {Scalable Diffusion Models with Transformers},
+  booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+  month     = {October},
+  year      = {2023},
+  pages     = {4195-4205}
+}
+@inproceedings{pmlr-v270-kim25c,
+  title     = {OpenVLA: An Open-Source Vision-Language-Action Model},
+  author    = {Kim, Moo Jin and Pertsch, Karl and Karamcheti, Siddharth and Xiao, Ted and Balakrishna, Ashwin and Nair, Suraj and Rafailov, Rafael and Foster, Ethan P and Sanketi, Pannag R and Vuong, Quan and Kollar, Thomas and Burchfiel, Benjamin and Tedrake, Russ and Sadigh, Dorsa and Levine, Sergey and Liang, Percy and Finn, Chelsea},
+  booktitle = {Proceedings of The 8th Conference on Robot Learning},
+  pages     = {2679--2713},
+  year      = {2025},
+  editor    = {Agrawal, Pulkit and Kroemer, Oliver and Burgard, Wolfram},
+  volume    = {270},
+  series    = {Proceedings of Machine Learning Research},
+  month     = {06--09 Nov},
+  publisher = {PMLR},
+  pdf       = {https://raw.githubusercontent.com/mlresearch/v270/main/assets/kim25c/kim25c.pdf},
+  url       = {https://proceedings.mlr.press/v270/kim25c.html},
+  abstract  = {Large policies pretrained on a combination of Internet-scale vision-language data and diverse robot demonstrations have the potential to change how we teach robots new skills: rather than training new behaviors from scratch, we can fine-tune such vision-language-action (VLA) models to obtain robust, generalizable policies for visuomotor control. Yet, widespread adoption of VLAs for robotics has been challenging as 1) existing VLAs are largely closed and inaccessible to the public, and 2) prior work fails to explore methods for efficiently fine-tuning VLAs for new tasks, a key component for adoption. Addressing these challenges, we introduce OpenVLA, a 7B-parameter open-source VLA trained on a diverse collection of 970k real-world robot demonstrations. OpenVLA builds on a Llama 2 language model combined with a visual encoder that fuses pretrained features from DINOv2 and SigLIP. As a product of the added data diversity and new model components, OpenVLA demonstrates strong results for generalist manipulation, outperforming closed models such as RT-2-X (55B) by 16.5% in absolute task success rate across 29 tasks and multiple robot embodiments, with 7x fewer parameters. We further show that we can effectively fine-tune OpenVLA for new settings, with especially strong generalization results in multi-task environments involving multiple objects and strong language grounding abilities, where we outperform expressive from-scratch imitation learning methods such as Diffusion Policy by 20.4%. We also explore compute efficiency; as a separate contribution, we show that OpenVLA can be fine-tuned on consumer GPUs via modern low-rank adaptation methods and served efficiently via quantization without a hit to downstream success rate. Finally, we release model checkpoints, fine-tuning notebooks, and our PyTorch codebase with built-in support for training VLAs at scale on Open X-Embodiment datasets.}
+}
+
 @inproceedings{xiao2024efficient,
   title     = {Efficient Streaming Language Models with Attention Sinks},
   author    = {Guangxuan Xiao and Yuandong Tian and Beidi Chen and Song Han and Mike Lewis},
   booktitle = {The Twelfth International Conference on Learning Representations},
   year      = {2024},
   url       = {https://openreview.net/forum?id=NG7sS51zVF}
+}
+@inproceedings{pmlr-v305-reuss25a,
+  title     = {FLOWER: Democratizing Generalist Robot Policies with Efficient Vision-Language-Flow Models},
+  author    = {Reuss, Moritz and Zhou, Hongyi and R\"{u}hle, Marcel and Ya\u{g}murlu, \"{O}mer Erdin\c{c} and Otto, Fabian and Lioutikov, Rudolf},
+  booktitle = {Proceedings of The 9th Conference on Robot Learning},
+  pages     = {3736--3761},
+  year      = {2025},
+  editor    = {Lim, Joseph and Song, Shuran and Park, Hae-Won},
+  volume    = {305},
+  series    = {Proceedings of Machine Learning Research},
+  month     = {27--30 Sep},
+  publisher = {PMLR},
+  pdf       = {https://raw.githubusercontent.com/mlresearch/v305/main/assets/reuss25a/reuss25a.pdf},
+  url       = {https://proceedings.mlr.press/v305/reuss25a.html},
+  abstract  = {Developing efficient Vision-Language-Action (VLA) policies is crucial for practical robotics deployment, yet current approaches face prohibitive computational costs and resource requirements. Existing diffusion-based VLA policies require multi-billion-parameter models and massive datasets to achieve strong performance. We tackle this efficiency challenge with two contributions: intermediate-modality fusion, which reallocates capacity to the diffusion head by pruning up to 50% of LLM layers, and action-specific Global-AdaLN conditioning, which cuts parameters by 20% through modular adaptation. We integrate these advances into a novel 950 M-parameter VLA called FLOWER. Pretrained in just 200 H100 GPU hours, FLOWER delivers a 25.9% improvement over state-of-the-art baselines across 190 tasks spanning ten simulation and real-world benchmarks and demonstrates robustness across diverse robotic embodiments. All code, pretrained weights, and training recipes are publicly released to democratize efficient VLA development.}
+}
+@misc{koo2025hamlet,
+  title         = {HAMLET: Switch your Vision-Language-Action Model into a History-Aware Policy},
+  author        = {Myungkyu Koo and Daewon Choi and Taeyoung Kim and Kyungmin Lee and Changyeon Kim and Younggyo Seo and Jinwoo Shin},
+  year          = {2025},
+  eprint        = {2510.00695},
+  archiveprefix = {arXiv},
+  primaryclass  = {cs.RO}
+}
+@inproceedings{shi2025hi,
+  title     = {Hi Robot: Open-Ended Instruction Following with Hierarchical Vision-Language-Action Models},
+  author    = {Lucy Xiaoyang Shi and brian ichter and Michael Robert Equi and Liyiming Ke and Karl Pertsch and Quan Vuong and James Tanner and Anna Walling and Haohuan Wang and Niccolo Fusai and Adrian Li-Bell and Danny Driess and Lachy Groom and Sergey Levine and Chelsea Finn},
+  booktitle = {Forty-second International Conference on Machine Learning},
+  year      = {2025},
+  url       = {https://openreview.net/forum?id=lNVHg9npif}
 }
 @inproceedings{liu-etal-2025-sliding,
   title     = {Sliding Windows Are Not the End: Exploring Full Ranking with Long-Context Large Language Models},
@@ -60,17 +120,4 @@
   doi       = {10.18653/v1/2025.acl-long.8},
   pages     = {162--176},
   isbn      = {979-8-89176-251-0}
-}
-@article{lecunDeepLearning2015,
-  title    = {Deep Learning},
-  author   = {LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey},
-  year     = 2015,
-  month    = may,
-  journal  = {Nature},
-  volume   = {521},
-  number   = {7553},
-  pages    = {436--444},
-  issn     = {1476-4687},
-  doi      = {10.1038/nature14539},
-  abstract = {Deep learning allows computational models that are composed of multiple processing layers to learn representations of data with multiple levels of abstraction. These methods have dramatically improved the state-of-the-art in speech recognition, visual object recognition, object detection and many other domains such as drug discovery and genomics. Deep learning discovers intricate structure in large data sets by using the backpropagation algorithm to indicate how a machine should change its internal parameters that are used to compute the representation in each layer from the representation in the previous layer. Deep convolutional nets have brought about breakthroughs in processing images, video, speech and audio, whereas recurrent nets have shone light on sequential data such as text and speech.}
 }

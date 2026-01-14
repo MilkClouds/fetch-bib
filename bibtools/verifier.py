@@ -7,14 +7,15 @@ from pathlib import Path
 from rich.console import Console
 
 from .constants import AUTO_FIND_ID, AUTO_FIND_NONE, AUTO_FIND_TITLE
-from .models import FieldMismatch, PaperInfo, VerificationReport, VerificationResult
+from .fetcher import MetadataFetcher
+from .models import FieldMismatch, PaperMetadata, VerificationReport, VerificationResult
 from .parser import (
     extract_paper_id_from_entry,
     generate_verification_comment,
     is_entry_verified,
     parse_bib_file,
 )
-from .semantic_scholar import SemanticScholarClient
+from .semantic_scholar import ResolvedIds
 from .utils import (
     compare_authors,
     compare_titles,
@@ -23,36 +24,8 @@ from .utils import (
 )
 
 
-def find_best_match(entry_title: str, papers: list[PaperInfo]) -> PaperInfo | None:
-    """Find the best matching paper from a list.
-
-    Args:
-        entry_title: Title from bibtex entry.
-        papers: List of papers from Semantic Scholar.
-
-    Returns:
-        Best matching paper if similarity > 0.85, None otherwise.
-    """
-    if not papers:
-        return None
-
-    best_match = None
-    best_score = 0.0
-
-    for paper in papers:
-        score = title_similarity(entry_title, paper.title)
-        if score > best_score:
-            best_score = score
-            best_match = paper
-
-    if best_score >= 0.85:
-        return best_match
-
-    return None
-
-
 class BibVerifier:
-    """Verifies bibtex entries using Semantic Scholar."""
+    """Verifies bibtex entries against CrossRef/arXiv (via Semantic Scholar ID resolution)."""
 
     def __init__(
         self,
@@ -60,33 +33,61 @@ class BibVerifier:
         skip_verified: bool = True,
         max_age_days: int | None = None,
         auto_find_level: str = "id",
-        fix_mismatches: bool = False,
+        fix_errors: bool = False,
+        fix_warnings: bool = False,
+        arxiv_check: bool = True,
+        mark_warnings_verified: bool = False,
         console: Console | None = None,
+        *,
+        fetcher: MetadataFetcher | None = None,
     ):
         """Initialize the verifier.
 
         Args:
-            api_key: Optional Semantic Scholar API key. Falls back to SEMANTIC_SCHOLAR_API_KEY env var.
+            api_key: Optional Semantic Scholar API key.
             skip_verified: Skip entries that are already verified.
             max_age_days: Re-verify entries older than this many days. None = never re-verify.
-                         0 = always re-verify (equivalent to --reverify).
             auto_find_level: Level of auto-find: "none", "id", or "title".
-            fix_mismatches: Automatically fix mismatched fields.
+            fix_errors: Automatically fix ERROR fields.
+            fix_warnings: Automatically fix WARNING fields.
+            arxiv_check: Cross-check with arXiv when arXiv ID exists.
+            mark_warnings_verified: Mark WARNING entries as verified (skip on future runs).
             console: Rich console for output.
+            fetcher: Optional pre-configured MetadataFetcher (for sharing).
         """
-        import os
+        self._fetcher = fetcher or MetadataFetcher(api_key=api_key)
+        self._owns_fetcher = fetcher is None
 
-        effective_api_key = api_key or os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-        self.client = SemanticScholarClient(api_key=effective_api_key)
         self.skip_verified = skip_verified
         self.max_age_days = max_age_days
         self.auto_find_level = auto_find_level
-        self.fix_mismatches = fix_mismatches
+        self.fix_errors = fix_errors
+        self.fix_warnings = fix_warnings
+        self.arxiv_check = arxiv_check
+        self.mark_warnings_verified = mark_warnings_verified
         self.console = console or Console()
 
-        # Validate auto_find_level
         if auto_find_level not in (AUTO_FIND_NONE, AUTO_FIND_ID, AUTO_FIND_TITLE):
             raise ValueError(f"Invalid auto_find_level: {auto_find_level}")
+
+    def close(self) -> None:
+        """Close owned fetcher."""
+        if self._owns_fetcher:
+            self._fetcher.close()
+
+    def __enter__(self) -> "BibVerifier":
+        return self
+
+    def __exit__(self, *_) -> None:
+        self.close()
+
+    def _resolve_batch(self, paper_ids: list[str]) -> dict[str, ResolvedIds | None]:
+        """Resolve paper IDs via S2 batch API (works for single or multiple IDs)."""
+        return self._fetcher.resolve_batch(paper_ids)
+
+    def _fetch_with_resolved(self, resolved: ResolvedIds) -> PaperMetadata | None:
+        """Fetch metadata using pre-resolved IDs."""
+        return self._fetcher.fetch_with_resolved(resolved)
 
     def _should_skip_verified(self, date_str: str | None) -> bool:
         """Determine if a verified entry should be skipped based on age.
@@ -124,6 +125,14 @@ class BibVerifier:
     ) -> VerificationResult:
         """Verify a single bibtex entry.
 
+        Flow:
+        1. S2 resolves paper_id → DOI/arXiv ID + venue
+        2. Source selection (mutually exclusive):
+           - if DOI exists        → CrossRef
+           - elif venue != arXiv  → DBLP
+           - elif venue == arXiv  → arXiv
+           - else                 → FAIL (return None)
+
         Args:
             entry: Bibtex entry dictionary.
             content: Raw file content for checking existing verification.
@@ -148,12 +157,10 @@ class BibVerifier:
         auto_found = source in ("doi", "eprint", "title") if source else False
 
         # If no paper_id and title search is enabled, try title search
-        # Title search returns paper_info directly, avoiding a second API call
-        paper_info: PaperInfo | None = None
         if not paper_id and self.auto_find_level == AUTO_FIND_TITLE:
             title = entry.get("title", "")
             if title:
-                paper_id, source, paper_info = self._search_by_title(entry)
+                paper_id, source = self._search_by_title_for_id(entry)
                 if paper_id:
                     auto_found = True
 
@@ -166,86 +173,15 @@ class BibVerifier:
                 no_paper_id=True,
             )
 
-        # Lookup paper by paper_id (skip if already have paper_info from title search)
-        if paper_info is None:
-            try:
-                paper_info = self.client.get_paper(paper_id)
-            except ConnectionError as e:
-                return VerificationResult(
-                    entry_key=entry_key,
-                    success=False,
-                    message=f"API error: {e}",
-                    paper_id_used=paper_id,
-                    auto_found_paper_id=auto_found,
-                    paper_id_source=source,
-                )
-
-        if not paper_info:
-            return VerificationResult(
-                entry_key=entry_key,
-                success=False,
-                message=f"Paper not found for {paper_id}",
-                paper_id_used=paper_id,
-                auto_found_paper_id=auto_found,
-                paper_id_source=source,
-            )
-
-        # Verify title, authors, year, venue match
-        mismatches, warnings = self._check_field_mismatches(entry, paper_info)
-        if mismatches:
-            # If fix_mismatches is enabled, mark as fixable instead of failed
-            if self.fix_mismatches:
-                return VerificationResult(
-                    entry_key=entry_key,
-                    success=True,  # Considered success because we'll fix it
-                    message="Fixed and verified",
-                    paper_info=paper_info,
-                    paper_id_used=paper_id,
-                    auto_found_paper_id=auto_found,
-                    paper_id_source=source,
-                    mismatches=mismatches,
-                    warnings=warnings,
-                    fixed=True,
-                    needs_update=True,
-                )
-            else:
-                mismatch_fields = ", ".join(m.field_name for m in mismatches)
-                return VerificationResult(
-                    entry_key=entry_key,
-                    success=False,
-                    message=f"Field mismatch: {mismatch_fields}",
-                    paper_info=paper_info,
-                    paper_id_used=paper_id,
-                    auto_found_paper_id=auto_found,
-                    paper_id_source=source,
-                    mismatches=mismatches,
-                    warnings=warnings,
-                )
-
-        # Success (with possible warnings)
-        message = "Verified"
-        if warnings:
-            warning_fields = ", ".join(w.field_name for w in warnings)
-            message = f"Verified (warning: {warning_fields} format differs)"
-
-        # Always update on successful verification
-        # (if we reached here, we didn't skip - either new or re-verifying)
-        return VerificationResult(
-            entry_key=entry_key,
-            success=True,
-            message=message,
-            paper_info=paper_info,
-            paper_id_used=paper_id,
-            auto_found_paper_id=auto_found,
-            paper_id_source=source,
-            warnings=warnings,
-            needs_update=True,
-        )
+        # Use batch resolve (works for single ID too) then verify
+        resolved_map = self._resolve_batch([paper_id])
+        resolved = resolved_map.get(paper_id)
+        return self._verify_entry_with_resolved(entry, paper_id, source or "", auto_found, resolved)
 
     def _check_field_mismatches(
-        self, entry: dict, paper_info: PaperInfo
+        self, entry: dict, metadata: PaperMetadata
     ) -> tuple[list[FieldMismatch], list[FieldMismatch]]:
-        """Check for mismatches between bibtex entry and Semantic Scholar data.
+        """Check for mismatches between bibtex entry and fetched metadata.
 
         Strict matching: only exact string match is PASS.
         - Exact match: PASS
@@ -254,27 +190,29 @@ class BibVerifier:
 
         Args:
             entry: Bibtex entry dictionary.
-            paper_info: Paper information from Semantic Scholar.
+            metadata: Paper metadata from CrossRef/arXiv.
 
         Returns:
             Tuple of (mismatches, warnings).
             - mismatches: Hard errors (FAIL).
             - warnings: Soft issues (WARNING).
         """
+        source = metadata.source
         mismatches = []
         warnings = []
 
         # Check title
         bib_title = entry.get("title", "")
-        if bib_title and paper_info.title:
-            match, warning_only = compare_titles(bib_title, paper_info.title)
+        if bib_title and metadata.title:
+            match, warning_only = compare_titles(bib_title, metadata.title)
             if not match:
                 mismatches.append(
                     FieldMismatch(
                         field_name="title",
                         bibtex_value=bib_title,
-                        semantic_scholar_value=paper_info.title,
-                        similarity=title_similarity(bib_title, paper_info.title),
+                        fetched_value=metadata.title,
+                        source=source,
+                        similarity=title_similarity(bib_title, metadata.title),
                         is_warning=False,
                     )
                 )
@@ -283,22 +221,30 @@ class BibVerifier:
                     FieldMismatch(
                         field_name="title",
                         bibtex_value=bib_title,
-                        semantic_scholar_value=paper_info.title,
+                        fetched_value=metadata.title,
+                        source=source,
                         is_warning=True,
                     )
                 )
 
         # Check authors
         bib_author_field = entry.get("author", "")
-        if bib_author_field and paper_info.authors:
-            ss_author_str = " and ".join(paper_info.authors)
-            match, warning_only = compare_authors(bib_author_field, paper_info.authors)
+        if bib_author_field and metadata.authors:
+            api_author_str = metadata.get_authors_str()  # "Family, Given and ..." format
+            # compare_authors expects list of names in bibtex format (Family, Given)
+            from .utils import format_author_bibtex_style
+
+            author_names = [
+                format_author_bibtex_style(a.get("given", ""), a.get("family", "")) for a in metadata.authors
+            ]
+            match, warning_only = compare_authors(bib_author_field, author_names)
             if not match:
                 mismatches.append(
                     FieldMismatch(
                         field_name="author",
                         bibtex_value=bib_author_field,
-                        semantic_scholar_value=ss_author_str,
+                        fetched_value=api_author_str,
+                        source=source,
                         is_warning=False,
                     )
                 )
@@ -307,22 +253,24 @@ class BibVerifier:
                     FieldMismatch(
                         field_name="author",
                         bibtex_value=bib_author_field,
-                        semantic_scholar_value=ss_author_str,
+                        fetched_value=api_author_str,
+                        source=source,
                         is_warning=True,
                     )
                 )
 
         # Check year (must be exact)
         bib_year = entry.get("year", "")
-        if bib_year and paper_info.year:
+        if bib_year and metadata.year:
             try:
                 bib_year_int = int(bib_year)
-                if bib_year_int != paper_info.year:
+                if bib_year_int != metadata.year:
                     mismatches.append(
                         FieldMismatch(
                             field_name="year",
                             bibtex_value=str(bib_year_int),
-                            semantic_scholar_value=str(paper_info.year),
+                            fetched_value=str(metadata.year),
+                            source=source,
                         )
                     )
             except ValueError:
@@ -330,14 +278,15 @@ class BibVerifier:
 
         # Check venue
         bib_venue = entry.get("journal", "") or entry.get("booktitle", "")
-        if bib_venue and paper_info.venue:
-            match, warning_only = compare_venues(bib_venue, paper_info.venue)
+        if bib_venue and metadata.venue:
+            match, warning_only = compare_venues(bib_venue, metadata.venue)
             if not match:
                 mismatches.append(
                     FieldMismatch(
                         field_name="venue",
                         bibtex_value=bib_venue,
-                        semantic_scholar_value=paper_info.venue,
+                        fetched_value=metadata.venue,
+                        source=source,
                         is_warning=False,
                     )
                 )
@@ -346,53 +295,95 @@ class BibVerifier:
                     FieldMismatch(
                         field_name="venue",
                         bibtex_value=bib_venue,
-                        semantic_scholar_value=paper_info.venue,
+                        fetched_value=metadata.venue,
+                        source=source,
                         is_warning=True,
                     )
                 )
 
         return mismatches, warnings
 
-    def _search_by_title(self, entry: dict) -> tuple[str | None, str | None, PaperInfo | None]:
+    def _check_arxiv_cross_match(self, arxiv_id: str, metadata: PaperMetadata) -> str | None:
+        """Cross-check metadata from CrossRef/DBLP against arXiv.
+
+        This catches cases where DBLP returns the wrong paper (e.g., OpenVLA has
+        two different entries in DBLP with different authors).
+
+        Args:
+            arxiv_id: arXiv ID to fetch from.
+            metadata: Metadata from CrossRef/DBLP.
+
+        Returns:
+            Error message if mismatch detected, None if OK.
+        """
+        try:
+            arxiv_meta = self._fetcher.arxiv_client.get_paper_metadata(arxiv_id)
+        except Exception:
+            # If arXiv fetch fails, skip cross-check (don't fail verification)
+            return None
+
+        if not arxiv_meta:
+            return None
+
+        # Compare authors - use normalized comparison
+        arxiv_authors = [f"{a.get('given', '')} {a.get('family', '')}".strip() for a in arxiv_meta.authors]
+        source_authors = [f"{a.get('given', '')} {a.get('family', '')}".strip() for a in metadata.authors]
+
+        # Check if author lists match (normalized)
+        from .utils import normalize_author_name
+
+        arxiv_normalized = [normalize_author_name(a) for a in arxiv_authors]
+        source_normalized = [normalize_author_name(a) for a in source_authors]
+
+        if arxiv_normalized != source_normalized:
+            arxiv_str = ", ".join(arxiv_authors)
+            source_str = ", ".join(source_authors)
+            return f"authors mismatch - arXiv: [{arxiv_str}] vs {metadata.source}: [{source_str}]"
+
+        return None
+
+    def _search_by_title_for_id(self, entry: dict) -> tuple[str | None, str | None]:
         """Search for paper by title and return paper_id if found with high confidence.
 
         Args:
             entry: Bibtex entry dictionary.
 
         Returns:
-            Tuple of (paper_id, source, paper_info).
-            - paper_id: Canonical paper ID (ARXIV:xxx or DOI:xxx)
-            - source: "title" if found, None otherwise
-            - paper_info: PaperInfo from search (avoids second API call)
+            Tuple of (paper_id, source). source is "title" if found.
         """
         title = entry.get("title", "")
         if not title:
-            return None, None, None
+            return None, None
 
-        # Strip LaTeX braces for search
         from .utils import strip_latex_braces
 
         search_title = strip_latex_braces(title)
 
-        # Search by title
         try:
-            papers = self.client.search_by_title(search_title, limit=3)
+            resolved_list = self._fetcher.s2_client.search_by_title(search_title, limit=3)
         except ConnectionError:
-            return None, None, None
+            return None, None
 
-        if not papers:
-            return None, None, None
+        if not resolved_list:
+            return None, None
 
-        # Find best match
-        best_match = find_best_match(title, papers)
-        if not best_match:
-            return None, None, None
+        # Find best match by title similarity
+        best_match = None
+        best_score = 0.0
+        for resolved in resolved_list:
+            if resolved.title:
+                score = title_similarity(title, resolved.title)
+                if score > best_score:
+                    best_score = score
+                    best_match = resolved
 
-        # Use Semantic Scholar paper_id
-        return best_match.paper_id, "title", best_match
+        if best_score >= 0.85 and best_match:
+            return best_match.paper_id, "title"
+
+        return None, None
 
     def verify_file(self, file_path: Path, show_progress: bool = True) -> tuple[VerificationReport, str]:
-        """Verify all entries in a bibtex file using batch API.
+        """Verify all entries in a bibtex file.
 
         Args:
             file_path: Path to the .bib file.
@@ -407,9 +398,8 @@ class BibVerifier:
         report = VerificationReport()
         updated_content = content
 
-        # Phase 1: Collect paper_ids to fetch
-        # (entry, paper_id, source, auto_found, paper_info_from_title)
-        entries_to_verify: list[tuple[dict, str, str, bool, PaperInfo | None]] = []
+        # Collect entries to verify
+        entries_to_verify: list[tuple[dict, str, str, bool]] = []  # (entry, paper_id, source, auto_found)
         for entry in entries:
             entry_key = entry.get("ID", "unknown")
 
@@ -431,11 +421,10 @@ class BibVerifier:
             auto_found = source in ("doi", "eprint", "title") if source else False
 
             # If no paper_id and title search is enabled, try title search
-            paper_info_from_title: PaperInfo | None = None
             if not paper_id and self.auto_find_level == AUTO_FIND_TITLE:
                 title = entry.get("title", "")
                 if title:
-                    paper_id, source, paper_info_from_title = self._search_by_title(entry)
+                    paper_id, source = self._search_by_title_for_id(entry)
                     if paper_id:
                         auto_found = True
 
@@ -450,76 +439,68 @@ class BibVerifier:
                 )
                 continue
 
-            entries_to_verify.append((entry, paper_id, source or "", auto_found, paper_info_from_title))
+            entries_to_verify.append((entry, paper_id, source or "", auto_found))
 
         if not entries_to_verify:
             return report, updated_content
 
-        # Phase 2: Batch fetch papers (only those not already found via title search)
-        paper_ids = [
-            paper_id for _, paper_id, _, _, paper_info_from_title in entries_to_verify if paper_info_from_title is None
-        ]
+        # Batch resolve all paper IDs via S2 (single API call)
+        paper_ids = [paper_id for _, paper_id, _, _ in entries_to_verify]
         if show_progress:
-            self.console.print(f"[dim]Fetching {len(paper_ids)} papers via batch API...[/]")
+            self.console.print(f"[dim]Resolving {len(paper_ids)} paper IDs...[/]")
+        resolved_map = self._resolve_batch(paper_ids)
 
-        try:
-            papers_map = self.client.get_papers_batch(paper_ids)
-        except ConnectionError as e:
-            # If batch fails, fall back to individual requests
-            self.console.print(f"[yellow]Batch API failed, falling back to individual requests: {e}[/]")
-            papers_map = {}
-            for paper_id in paper_ids:
-                try:
-                    papers_map[paper_id] = self.client.get_paper(paper_id)
-                except ConnectionError:
-                    papers_map[paper_id] = None
-
-        # Phase 3: Verify each entry with fetched data
-        if show_progress and len(entries_to_verify) > 0:
+        # Verify each entry using pre-resolved IDs
+        if show_progress:
+            self.console.print(f"[dim]Verifying {len(entries_to_verify)} entries...[/]")
             entry_iter = tqdm(entries_to_verify, desc="Verifying", unit="entry", leave=False)
         else:
             entry_iter = entries_to_verify
 
-        for entry, paper_id, source, auto_found, paper_info_from_title in entry_iter:
-            # Use paper_info from title search if available, otherwise from batch fetch
-            paper_info = paper_info_from_title or papers_map.get(paper_id)
-            result = self._verify_entry_with_paper(entry, paper_id, source, auto_found, paper_info)
+        for entry, paper_id, source, auto_found in entry_iter:
+            resolved = resolved_map.get(paper_id)
+            result = self._verify_entry_with_resolved(entry, paper_id, source, auto_found, resolved)
             report.add_result(result)
 
-            # Only mark as verified if PASS (success without warnings)
-            is_pass = result.success and not result.warnings
-            if is_pass and result.needs_update and result.paper_info and result.paper_id_used:
+            # Add paper_id comment if verified (PASS or WARNING, not FAIL)
+            if result.success and result.needs_update and result.metadata and result.paper_id_used:
                 if result.fixed and result.mismatches:
                     updated_content = self._apply_field_fixes(
-                        updated_content, entry, result.paper_info, result.mismatches
+                        updated_content, entry, result.metadata, result.mismatches
                     )
-                updated_content = self._add_verification_comment(updated_content, entry, result.paper_id_used)
+                # PASS: always include "verified via" (skip on future runs)
+                # WARNING: include "verified via" only if mark_warnings_verified is set
+                is_pass = not result.warnings
+                include_verified = is_pass or self.mark_warnings_verified
+                updated_content = self._add_verification_comment(
+                    updated_content, entry, result.paper_id_used, include_verified=include_verified
+                )
 
         return report, updated_content
 
-    def _verify_entry_with_paper(
+    def _verify_entry_with_resolved(
         self,
         entry: dict,
         paper_id: str,
         source: str,
         auto_found: bool,
-        paper_info: PaperInfo | None,
+        resolved: ResolvedIds | None,
     ) -> VerificationResult:
-        """Verify entry with pre-fetched paper info.
+        """Verify entry using pre-resolved IDs from S2 batch API.
 
         Args:
             entry: Bibtex entry dictionary.
             paper_id: Paper ID used for lookup.
             source: Source of paper_id.
             auto_found: Whether paper_id was auto-found.
-            paper_info: Pre-fetched paper info (or None if not found).
+            resolved: Pre-resolved IDs from batch API.
 
         Returns:
             Verification result.
         """
         entry_key = entry.get("ID", "unknown")
 
-        if not paper_info:
+        if not resolved:
             return VerificationResult(
                 entry_key=entry_key,
                 success=False,
@@ -529,15 +510,68 @@ class BibVerifier:
                 paper_id_source=source,
             )
 
+        # Fetch metadata from CrossRef/DBLP/arXiv using pre-resolved IDs
+        try:
+            metadata = self._fetch_with_resolved(resolved)
+        except Exception as e:
+            return VerificationResult(
+                entry_key=entry_key,
+                success=False,
+                message=f"API error: {e}",
+                paper_id_used=paper_id,
+                auto_found_paper_id=auto_found,
+                paper_id_source=source,
+            )
+
+        if not metadata:
+            return VerificationResult(
+                entry_key=entry_key,
+                success=False,
+                message=f"Paper not found for {paper_id}",
+                paper_id_used=paper_id,
+                auto_found_paper_id=auto_found,
+                paper_id_source=source,
+            )
+
+        # Cross-check with arXiv if enabled and arXiv ID exists
+        # This catches cases where DBLP/CrossRef returns wrong paper (e.g., different authors)
+        if self.arxiv_check and resolved.arxiv_id and metadata.source != "arxiv":
+            arxiv_mismatch = self._check_arxiv_cross_match(resolved.arxiv_id, metadata)
+            if arxiv_mismatch:
+                return VerificationResult(
+                    entry_key=entry_key,
+                    success=False,
+                    message=f"arXiv cross-check failed: {arxiv_mismatch}",
+                    metadata=metadata,
+                    paper_id_used=paper_id,
+                    auto_found_paper_id=auto_found,
+                    paper_id_source=source,
+                )
+
         # Verify title, authors, year, venue match
-        mismatches, warnings = self._check_field_mismatches(entry, paper_info)
+        mismatches, warnings = self._check_field_mismatches(entry, metadata)
+        return self._build_verification_result(entry, paper_id, source, auto_found, metadata, mismatches, warnings)
+
+    def _build_verification_result(
+        self,
+        entry: dict,
+        paper_id: str,
+        source: str,
+        auto_found: bool,
+        metadata: PaperMetadata,
+        mismatches: list[FieldMismatch],
+        warnings: list[FieldMismatch],
+    ) -> VerificationResult:
+        """Build verification result from field comparison."""
+        entry_key = entry.get("ID", "unknown")
+
         if mismatches:
-            if self.fix_mismatches:
+            if self.fix_errors:
                 return VerificationResult(
                     entry_key=entry_key,
                     success=True,
                     message="Fixed and verified",
-                    paper_info=paper_info,
+                    metadata=metadata,
                     paper_id_used=paper_id,
                     auto_found_paper_id=auto_found,
                     paper_id_source=source,
@@ -552,7 +586,7 @@ class BibVerifier:
                     entry_key=entry_key,
                     success=False,
                     message=f"Field mismatch: {mismatch_fields}",
-                    paper_info=paper_info,
+                    metadata=metadata,
                     paper_id_used=paper_id,
                     auto_found_paper_id=auto_found,
                     paper_id_source=source,
@@ -560,20 +594,27 @@ class BibVerifier:
                     warnings=warnings,
                 )
 
+        # Handle warnings - fix them if fix_warnings is enabled
+        fixed_warnings = self.fix_warnings and bool(warnings)
+
         message = "Verified"
-        if warnings:
+        if warnings and not self.fix_warnings:
             warning_fields = ", ".join(w.field_name for w in warnings)
             message = f"Verified (warning: {warning_fields} format differs)"
+        elif fixed_warnings:
+            message = "Fixed warnings and verified"
 
         return VerificationResult(
             entry_key=entry_key,
             success=True,
             message=message,
-            paper_info=paper_info,
+            metadata=metadata,
             paper_id_used=paper_id,
             auto_found_paper_id=auto_found,
             paper_id_source=source,
-            warnings=warnings,
+            warnings=warnings if not self.fix_warnings else [],
+            mismatches=warnings if self.fix_warnings else [],
+            fixed=fixed_warnings,
             needs_update=True,
         )
 
@@ -582,6 +623,7 @@ class BibVerifier:
         content: str,
         entry: dict,
         paper_id: str,
+        include_verified: bool = True,
     ) -> str:
         """Add a verification comment before an entry.
 
@@ -589,6 +631,7 @@ class BibVerifier:
             content: File content.
             entry: Bibtex entry dictionary.
             paper_id: Paper ID used for lookup. Required.
+            include_verified: If True, include "verified via bibtools (date)" suffix.
 
         Returns:
             Updated content with verification comment.
@@ -613,7 +656,7 @@ class BibVerifier:
         prefix = content[: match.start()]
 
         # Generate verification comment with paper_id embedded
-        comment = generate_verification_comment(paper_id)
+        comment = generate_verification_comment(paper_id, include_verified=include_verified)
 
         # Remove existing paper_id comment if present (any format)
         # Matches: "% paper_id: xxx" or "% paper_id: xxx, verified via ..."
@@ -635,7 +678,7 @@ class BibVerifier:
         self,
         content: str,
         entry: dict,
-        paper_info: PaperInfo,
+        metadata: PaperMetadata,
         mismatches: list[FieldMismatch],
     ) -> str:
         """Apply field fixes to an entry.
@@ -643,7 +686,7 @@ class BibVerifier:
         Args:
             content: File content.
             entry: Bibtex entry dictionary.
-            paper_info: Paper information from Semantic Scholar.
+            metadata: Paper metadata from CrossRef/arXiv.
             mismatches: List of field mismatches to fix.
 
         Returns:
@@ -665,18 +708,18 @@ class BibVerifier:
 
         for mismatch in mismatches:
             field_name = mismatch.field_name
-            new_value = mismatch.semantic_scholar_value
+            new_value = mismatch.fetched_value
 
             if field_name == "title":
                 # Replace title field
-                updated_entry = self._replace_field(updated_entry, "title", paper_info.title)
+                updated_entry = self._replace_field(updated_entry, "title", metadata.title or "")
             elif field_name == "author":
                 # Replace author field
-                authors_str = " and ".join(paper_info.authors)
+                authors_str = metadata.get_authors_str()
                 updated_entry = self._replace_field(updated_entry, "author", authors_str)
             elif field_name == "year":
                 # Replace year field
-                updated_entry = self._replace_field(updated_entry, "year", str(paper_info.year))
+                updated_entry = self._replace_field(updated_entry, "year", str(metadata.year or ""))
             elif field_name == "venue":
                 # Replace journal or booktitle
                 if "journal" in entry:
@@ -687,27 +730,26 @@ class BibVerifier:
         return content[: match.start()] + updated_entry + content[match.end() :]
 
     def _replace_field(self, entry_text: str, field_name: str, new_value: str) -> str:
-        """Replace a field value in an entry.
+        """Replace a field value in an entry, handling nested braces."""
+        match = re.search(rf"(\s*)({re.escape(field_name)}\s*=\s*)", entry_text, re.IGNORECASE)
+        if not match:
+            return entry_text
 
-        Args:
-            entry_text: The bibtex entry text.
-            field_name: Name of the field to replace.
-            new_value: New value for the field.
+        start = match.end()
+        if start >= len(entry_text) or entry_text[start] != "{":
+            return entry_text
 
-        Returns:
-            Updated entry text.
-        """
-        # Match field = {value} or field = "value" or field = value
-        # Handle multi-line values properly
-        field_pattern = re.compile(
-            rf"(\s*)({re.escape(field_name)}\s*=\s*)(\{{[^}}]*\}}|\"[^\"]*\"|[^,\n]+)",
-            re.IGNORECASE,
-        )
-        match = field_pattern.search(entry_text)
-        if match:
-            indent = match.group(1)
-            field_prefix = match.group(2)
-            # Use braces for the new value
-            new_field = f"{indent}{field_prefix}{{{new_value}}}"
-            return entry_text[: match.start()] + new_field + entry_text[match.end() :]
-        return entry_text
+        # Find matching closing brace (handle nested braces)
+        depth, i = 1, start + 1
+        while i < len(entry_text) and depth > 0:
+            if entry_text[i] == "{":
+                depth += 1
+            elif entry_text[i] == "}":
+                depth -= 1
+            i += 1
+
+        if depth != 0:
+            return entry_text
+
+        new_field = f"{match.group(1)}{match.group(2)}{{{new_value}}}"
+        return entry_text[: match.start()] + new_field + entry_text[i:]

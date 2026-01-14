@@ -64,29 +64,31 @@ class RateLimiter:
             self._last_request_time = 0.0
 
 
-# Global rate limiters for Semantic Scholar API
-# API key: 1 request/second
-# No API key: 100 requests/5 minutes (~3 seconds between requests)
+# Global named rate limiters shared across client instances
 _rate_limiters: dict[str, RateLimiter] = {}
 _global_lock = threading.Lock()
 
 
-def get_rate_limiter(api_key: str | None = None) -> RateLimiter:
-    """Get or create a rate limiter for the given API key.
+def get_rate_limiter(name: str, min_interval: float) -> RateLimiter:
+    """Get or create a named rate limiter.
 
-    Rate limiters are shared per API key to ensure rate limits are
+    Rate limiters are shared by name to ensure rate limits are
     respected across multiple client instances.
 
     Args:
-        api_key: API key (or None for unauthenticated).
+        name: Unique name for this rate limiter (e.g., "semantic_scholar", "crossref").
+        min_interval: Minimum seconds between requests.
 
     Returns:
         Rate limiter instance.
     """
-    key = api_key or "__no_key__"
-    min_interval = 1.0 if api_key else 3.0
-
     with _global_lock:
-        if key not in _rate_limiters:
-            _rate_limiters[key] = RateLimiter(min_interval=min_interval)
-        return _rate_limiters[key]
+        if name not in _rate_limiters:
+            _rate_limiters[name] = RateLimiter(min_interval=min_interval)
+        return _rate_limiters[name]
+
+
+def reset_all_rate_limiters() -> None:
+    """Reset all global rate limiters. Useful for testing."""
+    with _global_lock:
+        _rate_limiters.clear()

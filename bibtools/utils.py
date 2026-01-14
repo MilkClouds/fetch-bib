@@ -123,12 +123,12 @@ def compare_authors(bib_author_field: str, ss_authors: list[str]) -> tuple[bool,
     return True, True
 
 
-def compare_venues(bib_venue: str, ss_venue: str) -> tuple[bool, bool]:
+def compare_venues(bib_venue: str, fetched_venue: str) -> tuple[bool, bool]:
     """Compare venue fields.
 
     Args:
         bib_venue: Venue from bibtex entry.
-        ss_venue: Venue from Semantic Scholar.
+        fetched_venue: Venue from CrossRef/arXiv (source of truth).
 
     Returns:
         Tuple of (match, warning_only).
@@ -139,81 +139,14 @@ def compare_venues(bib_venue: str, ss_venue: str) -> tuple[bool, bool]:
     from .venue_aliases import venues_match
 
     # PASS: Exact raw string match
-    if bib_venue == ss_venue:
+    if bib_venue == fetched_venue:
         return True, False
 
     # Check alias match
-    if venues_match(bib_venue, ss_venue):
+    if venues_match(bib_venue, fetched_venue):
         return True, True  # Alias match -> WARNING
 
     return False, False
-
-
-def is_abbreviated_name(name: str) -> bool:
-    """Check if a name appears to be abbreviated.
-
-    Args:
-        name: A single name component (given name or full name).
-
-    Returns:
-        True if the name appears to be abbreviated (e.g., "M.", "C. R.", "J. P.").
-    """
-    # Normalize whitespace
-    name = " ".join(name.split())
-
-    # Pattern for abbreviations: single letters optionally followed by period
-    # Examples: "M.", "M", "C. R.", "J. P. K."
-    # Match: starts with capital letter, optionally period, optionally more initials
-    abbrev_pattern = r"^([A-Z]\.?\s*)+$"
-
-    if re.match(abbrev_pattern, name):
-        return True
-
-    # Also check if name is very short (1-2 chars excluding periods/spaces)
-    letters_only = re.sub(r"[.\s]", "", name)
-    if len(letters_only) <= 2 and letters_only.isupper():
-        return True
-
-    return False
-
-
-def extract_given_name(author_name: str) -> str:
-    """Extract given name from an author string.
-
-    Handles both "Firstname Lastname" and "Lastname, Firstname" formats.
-
-    Args:
-        author_name: Full author name string.
-
-    Returns:
-        Given name portion of the name.
-    """
-    author_name = " ".join(author_name.split())
-
-    if "," in author_name:
-        # "Lastname, Firstname" format
-        parts = author_name.split(",", 1)
-        return parts[1].strip() if len(parts) > 1 else ""
-    else:
-        # "Firstname Lastname" format - last word is family name
-        parts = author_name.rsplit(None, 1)
-        return parts[0].strip() if len(parts) > 1 else ""
-
-
-def has_abbreviated_authors(authors: list[str]) -> bool:
-    """Check if any author in the list has an abbreviated name.
-
-    Args:
-        authors: List of author name strings.
-
-    Returns:
-        True if any author has an abbreviated given name.
-    """
-    for author in authors:
-        given = extract_given_name(author)
-        if given and is_abbreviated_name(given):
-            return True
-    return False
 
 
 def format_author_bibtex_style(given: str, family: str) -> str:
@@ -227,15 +160,3 @@ def format_author_bibtex_style(given: str, family: str) -> str:
         Formatted author string: "Family, Given"
     """
     return f"{family}, {given}"
-
-
-def format_authors_list(authors: list[dict[str, str]]) -> list[str]:
-    """Format a list of author dicts to bibtex-style strings.
-
-    Args:
-        authors: List of dicts with 'given' and 'family' keys.
-
-    Returns:
-        List of formatted author strings: ["Family, Given", ...]
-    """
-    return [format_author_bibtex_style(a["given"], a["family"]) for a in authors]

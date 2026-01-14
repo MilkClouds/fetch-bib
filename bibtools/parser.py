@@ -165,17 +165,21 @@ def extract_paper_id_from_entry(
     return None, None
 
 
-def generate_verification_comment(paper_id: str) -> str:
+def generate_verification_comment(paper_id: str, include_verified: bool = True) -> str:
     """Generate verification comment line.
-
-    Format: "% paper_id: {paper_id}, verified via bibtools (YYYY.MM.DD)"
 
     Args:
         paper_id: Paper ID used for lookup (e.g., "ARXIV:2106.15928").
-                  Required - cannot generate verification without paper_id.
+        include_verified: If True, include "verified via bibtools (date)" suffix.
+                          If False, only include paper_id.
 
     Returns:
         Single-line verification comment string.
+        - With include_verified=True: "% paper_id: {paper_id}, verified via bibtools (YYYY.MM.DD)"
+        - With include_verified=False: "% paper_id: {paper_id}"
     """
-    today = date.today().strftime("%Y.%m.%d")
-    return f"% paper_id: {paper_id}, verified via bibtools ({today})"
+    if include_verified:
+        today = date.today().strftime("%Y.%m.%d")
+        return f"% paper_id: {paper_id}, verified via bibtools ({today})"
+    else:
+        return f"% paper_id: {paper_id}"

@@ -1,46 +1,50 @@
-"""Semantic Scholar API client for paper verification."""
+"""Semantic Scholar API client for identifier resolution."""
 
 import time
+from dataclasses import dataclass
 
 import httpx
 
-from .arxiv_client import ArxivClient
-from .crossref import CrossRefClient
-from .models import BibtexEntry, PaperInfo
 from .rate_limiter import get_rate_limiter
-from .utils import format_author_bibtex_style, has_abbreviated_authors
 
-# Maximum papers per batch request (Semantic Scholar limit)
-BATCH_SIZE = 500
+_BATCH_SIZE = 500
+
+
+@dataclass
+class ResolvedIds:
+    """Resolved external IDs from Semantic Scholar.
+
+    These IDs are used to fetch metadata from the appropriate source of truth.
+    Priority: DOI (CrossRef) > venue != arXiv (DBLP) > arXiv
+    """
+
+    paper_id: str
+    doi: str | None
+    arxiv_id: str | None
+    dblp_id: str | None  # e.g., "conf/iclr/HuSWALWWC22"
+    venue: str | None = None  # e.g., "ICLR", "NeurIPS", "arXiv"
+    title: str | None = None  # Paper title for DBLP title-based search
 
 
 class SemanticScholarClient:
-    """Client for Semantic Scholar API."""
+    """Semantic Scholar API client for identifier resolution.
+
+    Role: Resolve paper identifiers (arXiv ID, DOI, S2 ID) to external IDs
+    for downstream metadata fetching from CrossRef/DBLP/arXiv.
+    """
 
     BASE_URL = "https://api.semanticscholar.org/graph/v1"
-    # Request paperId, citationStyles.bibtex, and externalIds for DOI
-    FIELDS = "paperId,citationStyles,externalIds"
 
-    def __init__(
-        self,
-        api_key: str | None = None,
-        max_retries: int = 3,
-        use_external_apis: bool = True,
-    ):
-        """Initialize the client.
+    # Rate limits: with API key = 1 req/sec, without = 100 req/5min (~3 sec)
+    _RATE_LIMIT_WITH_KEY = 1.0
+    _RATE_LIMIT_NO_KEY = 3.0
 
-        Args:
-            api_key: Optional API key for higher rate limits (1 req/sec vs 100 req/5min).
-            max_retries: Maximum number of retries on rate limit errors.
-            use_external_apis: Whether to use CrossRef/arXiv APIs to get full author names.
-        """
+    def __init__(self, api_key: str | None = None, max_retries: int = 3):
         self.api_key = api_key
         self.max_retries = max_retries
-        self.use_external_apis = use_external_apis
-        self._rate_limiter = get_rate_limiter(api_key)
+        interval = self._RATE_LIMIT_WITH_KEY if api_key else self._RATE_LIMIT_NO_KEY
+        self._rate_limiter = get_rate_limiter("semantic_scholar", interval)
         self._http_client: httpx.Client | None = None
-        self._crossref_client: CrossRefClient | None = None
-        self._arxiv_client: ArxivClient | None = None
 
     def _get_http_client(self) -> httpx.Client:
         """Get or create HTTP client with connection pooling."""
@@ -53,17 +57,15 @@ class SemanticScholarClient:
         return self._http_client
 
     def close(self) -> None:
-        """Close the HTTP client."""
+        """Close the HTTP client.
+
+        Note: Prefer using context manager (with statement) for automatic cleanup:
+            with SemanticScholarClient() as client:
+                client.search_by_title("...")
+        """
         if self._http_client is not None and not self._http_client.is_closed:
             self._http_client.close()
             self._http_client = None
-        if self._crossref_client is not None:
-            self._crossref_client.close()
-            self._crossref_client = None
-
-    def __del__(self) -> None:
-        """Ensure HTTP client is closed on garbage collection."""
-        self.close()
 
     def __enter__(self) -> "SemanticScholarClient":
         return self
@@ -77,197 +79,6 @@ class SemanticScholarClient:
         if self.api_key:
             headers["x-api-key"] = self.api_key
         return headers
-
-    def _get_crossref_client(self) -> CrossRefClient:
-        """Get or create CrossRef client."""
-        if self._crossref_client is None:
-            self._crossref_client = CrossRefClient()
-        return self._crossref_client
-
-    def _get_arxiv_client(self) -> ArxivClient:
-        """Get or create arXiv client."""
-        if self._arxiv_client is None:
-            self._arxiv_client = ArxivClient()
-        return self._arxiv_client
-
-    def _parse_paper(self, data: dict) -> PaperInfo | None:
-        """Parse API response into PaperInfo.
-
-        Args:
-            data: API response dictionary.
-
-        Returns:
-            PaperInfo or None if parsing fails.
-        """
-        if not data:
-            return None
-
-        paper_id = data.get("paperId", "")
-        if not paper_id:
-            return None
-
-        citation_styles = data.get("citationStyles", {}) or {}
-        raw_bibtex = citation_styles.get("bibtex", "") or ""
-
-        bibtex = BibtexEntry.from_raw_bibtex(raw_bibtex)
-        if not bibtex:
-            # Bibtex parsing failed - cannot create valid PaperInfo
-            return None
-
-        # Extract external IDs for author enhancement
-        external_ids = data.get("externalIds", {}) or {}
-        doi = external_ids.get("DOI")
-        arxiv_id = external_ids.get("ArXiv")
-
-        # Enhance author names using external APIs
-        if bibtex.authors:
-            enhanced = self._enhance_authors(bibtex, doi, arxiv_id)
-            if enhanced is None:
-                # Author enhancement failed - abbreviated names remain
-                return None
-            bibtex = enhanced
-
-        return PaperInfo(paper_id=paper_id, bibtex=bibtex)
-
-    def _enhance_authors(self, bibtex: BibtexEntry, doi: str | None, arxiv_id: str | None) -> BibtexEntry | None:
-        """Enhance author names using external APIs.
-
-        Priority: CrossRef (via DOI) > arXiv API > format only
-
-        Args:
-            bibtex: Original BibtexEntry with authors.
-            doi: DOI if available.
-            arxiv_id: arXiv ID if available.
-
-        Returns:
-            BibtexEntry with enhanced author names, or None if abbreviated names remain.
-        """
-        if not self.use_external_apis:
-            bibtex.authors = self._format_authors_bibtex_style(bibtex.authors)
-            if has_abbreviated_authors(bibtex.authors):
-                return None
-            return bibtex
-
-        # Check if enhancement is needed
-        if not has_abbreviated_authors(bibtex.authors):
-            bibtex.authors = self._format_authors_bibtex_style(bibtex.authors)
-            return bibtex
-
-        original_authors = bibtex.authors.copy()
-
-        # Try CrossRef first (most reliable for published papers)
-        if doi:
-            new_authors = self._fetch_crossref_authors(doi)
-            if new_authors and self._validate_authors(original_authors, new_authors):
-                bibtex.authors = [format_author_bibtex_style(a["given"], a["family"]) for a in new_authors]
-                if not has_abbreviated_authors(bibtex.authors):
-                    return bibtex
-
-        # Try arXiv API (for preprints)
-        if arxiv_id:
-            new_authors = self._fetch_arxiv_authors(arxiv_id)
-            if new_authors and self._validate_authors(original_authors, new_authors):
-                bibtex.authors = [format_author_bibtex_style(a["given"], a["family"]) for a in new_authors]
-                if not has_abbreviated_authors(bibtex.authors):
-                    return bibtex
-
-        # All enhancement attempts failed or still have abbreviated names
-        return None
-
-    def _fetch_crossref_authors(self, doi: str) -> list[dict[str, str]] | None:
-        """Fetch author names from CrossRef.
-
-        Args:
-            doi: DOI to lookup.
-
-        Returns:
-            List of author dicts with 'given' and 'family' keys, or None if failed.
-        """
-        crossref = self._get_crossref_client()
-        return crossref.get_authors_by_doi(doi)
-
-    def _fetch_arxiv_authors(self, arxiv_id: str) -> list[dict[str, str]] | None:
-        """Fetch author names from arXiv.
-
-        Args:
-            arxiv_id: arXiv ID to lookup.
-
-        Returns:
-            List of author dicts with 'given' and 'family' keys, or None if failed.
-        """
-        arxiv_client = self._get_arxiv_client()
-        return arxiv_client.get_authors_by_arxiv_id(arxiv_id)
-
-    def _validate_authors(self, original: list[str], new_authors: list[dict[str, str]]) -> bool:
-        """Validate that new authors match original authors.
-
-        Checks that:
-        1. Author count is the same
-        2. Family names match (case-insensitive) in the same order
-
-        Args:
-            original: Original author name strings.
-            new_authors: New author dicts with 'given' and 'family' keys.
-
-        Returns:
-            True if validation passes, False otherwise.
-        """
-        if len(original) != len(new_authors):
-            return False
-
-        for orig_author, new_author in zip(original, new_authors):
-            orig_family = self._extract_family_name(orig_author)
-            new_family = new_author.get("family", "")
-
-            if orig_family.lower() != new_family.lower():
-                return False
-
-        return True
-
-    def _extract_family_name(self, author: str) -> str:
-        """Extract family name from an author string.
-
-        Handles both "Firstname Lastname" and "Lastname, Firstname" formats.
-
-        Args:
-            author: Full author name string.
-
-        Returns:
-            Family name portion.
-        """
-        author = " ".join(author.split())  # Normalize whitespace
-
-        if "," in author:
-            # "Lastname, Firstname" format
-            return author.split(",", 1)[0].strip()
-        else:
-            # "Firstname Lastname" format - last word is family name
-            parts = author.rsplit(None, 1)
-            return parts[-1].strip() if parts else author
-
-    def _format_authors_bibtex_style(self, authors: list[str]) -> list[str]:
-        """Format author names to bibtex style (Lastname, Firstname).
-
-        Args:
-            authors: List of author names in any format.
-
-        Returns:
-            List of author names in "Lastname, Firstname" format.
-        """
-        result = []
-        for author in authors:
-            author = " ".join(author.split())  # Normalize whitespace
-            if "," in author:
-                # Already in "Lastname, Firstname" format
-                result.append(author)
-            else:
-                # "Firstname Lastname" -> "Lastname, Firstname"
-                parts = author.rsplit(None, 1)
-                if len(parts) == 2:
-                    result.append(f"{parts[1]}, {parts[0]}")
-                else:
-                    result.append(author)
-        return result
 
     def _request_with_retry(
         self,
@@ -316,7 +127,7 @@ class SemanticScholarClient:
             raise ConnectionError(f"Failed after {self.max_retries} retries: {last_error}") from last_error
         raise ConnectionError("Request failed with unknown error")
 
-    def search_by_title(self, title: str, limit: int = 5) -> list[PaperInfo]:
+    def search_by_title(self, title: str, limit: int = 5) -> list[ResolvedIds]:
         """Search for papers by title.
 
         Args:
@@ -324,14 +135,14 @@ class SemanticScholarClient:
             limit: Maximum number of results.
 
         Returns:
-            List of matching papers (papers with abbreviated authors are excluded).
+            List of ResolvedIds with paper info.
         """
         clean_title = title.replace("{", "").replace("}", "").replace("$", "")
 
         params = {
             "query": clean_title,
             "limit": limit,
-            "fields": self.FIELDS,
+            "fields": "paperId,externalIds,venue,title",
         }
 
         try:
@@ -344,70 +155,72 @@ class SemanticScholarClient:
             papers = data.get("data", []) or []
             results = []
             for p in papers:
-                paper = self._parse_paper(p)
-                if paper:
-                    results.append(paper)
+                resolved = self._parse_resolved_ids(p)
+                if resolved:
+                    results.append(resolved)
             return results
         except httpx.HTTPError as e:
             raise ConnectionError(f"Failed to search Semantic Scholar: {e}") from e
 
-    def get_paper(self, paper_id: str) -> PaperInfo | None:
-        """Get paper by any Semantic Scholar paper ID format.
+    def resolve_ids(self, paper_id: str) -> ResolvedIds | None:
+        """Resolve any paper identifier to DOI/arXiv ID.
 
-        Args:
-            paper_id: Paper identifier (ARXIV:id, DOI:doi, CorpusId:id, etc.)
+        This is the primary entry point for the new architecture.
+        Returns DOI and arXiv ID for downstream metadata fetching.
 
-        Returns:
-            Paper info if found, None otherwise.
+        Supports:
+        - arXiv ID: "2106.09685" or "ARXIV:2106.09685"
+        - DOI: "10.1234/..." or "DOI:10.1234/..."
+        - Semantic Scholar ID: "649def34f8be52c8b66281af98ae884c09aef38b"
         """
+        # Normalize arXiv ID (add ARXIV: prefix if looks like arXiv ID)
+        normalized_id = self._normalize_paper_id(paper_id)
+
         try:
             response = self._request_with_retry(
                 "GET",
-                f"{self.BASE_URL}/paper/{paper_id}",
-                params={"fields": self.FIELDS},
+                f"{self.BASE_URL}/paper/{normalized_id}",
+                params={"fields": "paperId,externalIds,venue,title"},
             )
-            return self._parse_paper(response.json())
+            return self._parse_resolved_ids(response.json())
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return None
-            raise ConnectionError(f"Failed to get paper from Semantic Scholar: {e}") from e
-        except httpx.HTTPError as e:
-            raise ConnectionError(f"Failed to get paper from Semantic Scholar: {e}") from e
+            raise
+        except httpx.HTTPError:
+            return None
 
-    def get_papers_batch(self, paper_ids: list[str]) -> dict[str, PaperInfo | None]:
-        """Get multiple papers in a single batch request.
+    def _normalize_paper_id(self, paper_id: str) -> str:
+        """Normalize paper ID for Semantic Scholar API.
 
-        Uses the /paper/batch endpoint to fetch up to 500 papers at once.
-        Automatically splits into multiple requests if more than 500 IDs.
-
-        Args:
-            paper_ids: List of paper identifiers (ARXIV:id, DOI:doi, etc.)
-
-        Returns:
-            Dictionary mapping paper_id to PaperInfo (or None if not found).
+        Adds ARXIV: prefix to bare arXiv IDs (e.g., "2106.09685" -> "ARXIV:2106.09685").
         """
+        # Already has a prefix
+        if ":" in paper_id or "/" in paper_id:
+            return paper_id
+
+        # Check if it looks like an arXiv ID (YYMM.NNNNN format)
+        import re
+
+        if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", paper_id):
+            return f"ARXIV:{paper_id}"
+
+        return paper_id
+
+    def resolve_ids_batch(self, paper_ids: list[str]) -> dict[str, ResolvedIds | None]:
+        """Resolve multiple paper identifiers to DOI/arXiv ID in batch."""
         if not paper_ids:
             return {}
 
-        results: dict[str, PaperInfo | None] = {}
-
-        # Process in batches of BATCH_SIZE (500)
-        for i in range(0, len(paper_ids), BATCH_SIZE):
-            batch = paper_ids[i : i + BATCH_SIZE]
-            batch_results = self._get_papers_batch_single(batch)
+        results: dict[str, ResolvedIds | None] = {}
+        for i in range(0, len(paper_ids), _BATCH_SIZE):
+            batch = paper_ids[i : i + _BATCH_SIZE]
+            batch_results = self._resolve_ids_batch_single(batch)
             results.update(batch_results)
-
         return results
 
-    def _get_papers_batch_single(self, paper_ids: list[str]) -> dict[str, PaperInfo | None]:
-        """Get a single batch of papers (max 500).
-
-        Args:
-            paper_ids: List of paper identifiers (max 500).
-
-        Returns:
-            Dictionary mapping paper_id to PaperInfo (or None if not found).
-        """
+    def _resolve_ids_batch_single(self, paper_ids: list[str]) -> dict[str, ResolvedIds | None]:
+        """Resolve a single batch of paper identifiers."""
         if not paper_ids:
             return {}
 
@@ -415,20 +228,46 @@ class SemanticScholarClient:
             response = self._request_with_retry(
                 "POST",
                 f"{self.BASE_URL}/paper/batch",
-                params={"fields": self.FIELDS},
+                params={"fields": "paperId,externalIds,venue,title"},
                 json={"ids": paper_ids},
             )
             data = response.json()
 
-            # Response is a list in the same order as input IDs
-            # None values indicate papers not found
-            results: dict[str, PaperInfo | None] = {}
+            results: dict[str, ResolvedIds | None] = {}
             for paper_id, paper_data in zip(paper_ids, data, strict=True):
                 if paper_data is None:
                     results[paper_id] = None
                 else:
-                    results[paper_id] = self._parse_paper(paper_data)
-
+                    results[paper_id] = self._parse_resolved_ids(paper_data)
             return results
-        except httpx.HTTPError as e:
-            raise ConnectionError(f"Failed to batch get papers from Semantic Scholar: {e}") from e
+        except httpx.HTTPError:
+            return {pid: None for pid in paper_ids}
+
+    def _parse_resolved_ids(self, data: dict) -> ResolvedIds | None:
+        """Parse API response into ResolvedIds."""
+        if not data:
+            return None
+
+        paper_id = data.get("paperId", "")
+        if not paper_id:
+            return None
+
+        external_ids = data.get("externalIds", {}) or {}
+        doi = external_ids.get("DOI")
+        arxiv_id = external_ids.get("ArXiv")
+        dblp_id = external_ids.get("DBLP")
+        venue = data.get("venue") or None
+        title = data.get("title") or None
+
+        # Skip arXiv DOIs (e.g., 10.48550/arXiv.xxxx) - treat as arXiv-only
+        if doi and "arxiv" in doi.lower():
+            doi = None
+
+        return ResolvedIds(
+            paper_id=paper_id,
+            doi=doi,
+            arxiv_id=arxiv_id,
+            dblp_id=dblp_id,
+            venue=venue,
+            title=title,
+        )

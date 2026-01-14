@@ -44,14 +44,23 @@ class TestVerifyCommand:
         assert result.exit_code == 1
         assert "Invalid --auto-find level" in result.output
 
-    def test_verify_fix_without_none(self, tmp_path):
-        """Test that --fix requires --auto-find=none."""
+    def test_verify_fix_errors_without_none(self, tmp_path):
+        """Test that --fix-errors requires --auto-find=none."""
         bib_file = tmp_path / "test.bib"
         bib_file.write_text("@article{test, title = {Test}}")
 
-        result = runner.invoke(app, ["verify", str(bib_file), "--fix"])
+        result = runner.invoke(app, ["verify", str(bib_file), "--fix-errors"])
         assert result.exit_code == 1
-        assert "--fix only allowed with --auto-find=none" in result.output
+        assert "--fix-errors/--fix-warnings only allowed with --auto-find=none" in result.output
+
+    def test_verify_fix_warnings_without_none(self, tmp_path):
+        """Test that --fix-warnings requires --auto-find=none."""
+        bib_file = tmp_path / "test.bib"
+        bib_file.write_text("@article{test, title = {Test}}")
+
+        result = runner.invoke(app, ["verify", str(bib_file), "--fix-warnings"])
+        assert result.exit_code == 1
+        assert "--fix-errors/--fix-warnings only allowed with --auto-find=none" in result.output
 
     @patch("bibtools.cli.BibVerifier")
     def test_verify_dry_run(self, mock_verifier_class, tmp_path):
@@ -134,20 +143,22 @@ class TestFetchCommand:
     """Tests for fetch command."""
 
     @patch("bibtools.cli.BibtexGenerator")
-    def test_fetch_success(self, mock_generator_class, make_paper):
+    def test_fetch_success(self, mock_generator_class):
         """Test successful paper fetch."""
+        from bibtools.models import FetchResult, PaperMetadata
+
         mock_generator = MagicMock()
         mock_generator_class.return_value = mock_generator
 
-        paper = make_paper(
-            paper_id="abc",
+        metadata = PaperMetadata(
             title="Test Paper Title",
-            authors=["John Smith", "Jane Doe"],
+            authors=[{"given": "John", "family": "Smith"}, {"given": "Jane", "family": "Doe"}],
             year=2024,
             venue="NeurIPS",
+            source="crossref",
         )
         bibtex = "@article{smith2024test, title = {Test Paper Title}}"
-        mock_generator.fetch_by_paper_id.return_value = (bibtex, paper)
+        mock_generator.fetch_by_paper_id.return_value = FetchResult(bibtex=bibtex, metadata=metadata)
 
         result = runner.invoke(app, ["fetch", "ARXIV:2106.15928"])
         assert result.exit_code == 0
@@ -159,7 +170,7 @@ class TestFetchCommand:
         """Test fetch with paper not found."""
         mock_generator = MagicMock()
         mock_generator_class.return_value = mock_generator
-        mock_generator.fetch_by_paper_id.return_value = (None, None)
+        mock_generator.fetch_by_paper_id.return_value = None
 
         result = runner.invoke(app, ["fetch", "ARXIV:0000.00000"])
         assert result.exit_code == 1
@@ -170,23 +181,23 @@ class TestSearchCommand:
     """Tests for search command."""
 
     @patch("bibtools.cli.BibtexGenerator")
-    def test_search_success(self, mock_generator_class, make_paper):
+    def test_search_success(self, mock_generator_class):
         """Test successful paper search."""
+        from bibtools.models import FetchResult, PaperMetadata
+
         mock_generator = MagicMock()
         mock_generator_class.return_value = mock_generator
 
-        papers = [
-            (
-                "@article{smith2024test}",
-                make_paper(
-                    paper_id="1",
-                    title="Machine Learning Paper",
-                    authors=["Author One"],
-                    year=2024,
-                ),
-            ),
+        metadata = PaperMetadata(
+            title="Machine Learning Paper",
+            authors=[{"given": "Author", "family": "One"}],
+            year=2024,
+            venue="NeurIPS",
+            source="crossref",
+        )
+        mock_generator.search_by_query.return_value = [
+            FetchResult(bibtex="@article{one2024ml}", metadata=metadata),
         ]
-        mock_generator.search_by_query.return_value = papers
 
         result = runner.invoke(app, ["search", "machine learning"])
         assert result.exit_code == 0

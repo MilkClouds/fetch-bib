@@ -102,11 +102,32 @@ def verify(
             help="Auto-find paper_id level: none (comment only), id (+ doi/eprint), title (+ title search).",
         ),
     ] = "id",
-    fix: Annotated[
+    fix_errors: Annotated[
         bool,
         typer.Option(
-            "--fix",
-            help="Auto-fix mismatched fields. Only allowed with --auto-find=none.",
+            "--fix-errors",
+            help="Auto-fix ERROR fields. Only allowed with --auto-find=none.",
+        ),
+    ] = False,
+    fix_warnings: Annotated[
+        bool,
+        typer.Option(
+            "--fix-warnings",
+            help="Auto-fix WARNING fields (venue, title case, etc.) to match API values. Only allowed with --auto-find=none.",
+        ),
+    ] = False,
+    arxiv_check: Annotated[
+        bool,
+        typer.Option(
+            "--arxiv-check/--no-arxiv-check",
+            help="Cross-check with arXiv when arXiv ID exists. Detects wrong papers from DBLP/CrossRef.",
+        ),
+    ] = True,
+    mark_warnings_verified: Annotated[
+        bool,
+        typer.Option(
+            "--mark-warnings-verified",
+            help="Mark WARNING entries as verified (skip on future runs). Default: only PASS entries.",
         ),
     ] = False,
 ) -> None:
@@ -121,7 +142,7 @@ def verify(
       bibtools verify main.bib                    # default: --auto-find=id
       bibtools verify main.bib --auto-find=none   # strict: comment only
       bibtools verify main.bib --auto-find=title  # aggressive: title search
-      bibtools verify main.bib --auto-find=none --fix  # fix mode
+      bibtools verify main.bib --auto-find=none --fix-errors  # fix errors
     """
     # Validate auto-find level
     auto_find_level = auto_find.lower()
@@ -129,11 +150,11 @@ def verify(
         console.print(f"[bold red]Error:[/] Invalid --auto-find level: {auto_find}\nValid levels: none, id, title")
         raise typer.Exit(1)
 
-    # Safety check: --fix only allowed with --auto-find=none
-    if fix and auto_find_level != AUTO_FIND_NONE:
+    # Safety check: --fix-errors/--fix-warnings only allowed with --auto-find=none
+    if (fix_errors or fix_warnings) and auto_find_level != AUTO_FIND_NONE:
         console.print(
-            "[bold red]Error:[/] --fix only allowed with --auto-find=none\n"
-            "Use: bibtools verify --auto-find=none --fix main.bib"
+            "[bold red]Error:[/] --fix-errors/--fix-warnings only allowed with --auto-find=none\n"
+            "Use: bibtools verify --auto-find=none --fix-errors main.bib"
         )
         raise typer.Exit(1)
 
@@ -145,8 +166,13 @@ def verify(
         AUTO_FIND_TITLE: "[yellow]title[/] (comment + doi/eprint + title search)",
     }
     console.print(f"[dim]Auto-find level:[/] {level_desc[auto_find_level]}")
-    if fix:
-        console.print("[yellow]⚠ Fix mode: enabled - will auto-correct mismatched fields[/]")
+    if fix_errors:
+        console.print("[yellow]⚠ Fix errors: enabled[/]")
+    if fix_warnings:
+        console.print("[yellow]⚠ Fix warnings: enabled[/]")
+
+    if not arxiv_check:
+        console.print("[dim]arXiv cross-check:[/] disabled")
 
     # Handle --reverify as --max-age=0
     effective_max_age = max_age
@@ -164,7 +190,10 @@ def verify(
         skip_verified=True,  # Always True when using max_age logic
         max_age_days=effective_max_age,
         auto_find_level=auto_find_level,
-        fix_mismatches=fix,
+        fix_errors=fix_errors,
+        fix_warnings=fix_warnings,
+        arxiv_check=arxiv_check,
+        mark_warnings_verified=mark_warnings_verified,
         console=console,
     )
 
@@ -215,18 +244,32 @@ def fetch(
         bibtools fetch ARXIV:2106.15928
         bibtools fetch "DOI:10.18653/v1/N18-3011"
     """
-    generator = BibtexGenerator(api_key=api_key)
-    bibtex, paper = generator.fetch_by_paper_id(paper_id)
+    from .fetcher import FetchError
 
-    if not bibtex or not paper:
+    generator = BibtexGenerator(api_key=api_key)
+    try:
+        result = generator.fetch_by_paper_id(paper_id)
+    except FetchError as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(1)
+    finally:
+        generator.close()
+
+    if not result:
         console.print(f"[bold red]Error:[/] Paper not found: {paper_id}")
         raise typer.Exit(1)
 
-    console.print(f"\n[bold green]Found:[/] {paper.title}")
-    console.print(f"[dim]Authors:[/] {', '.join(paper.authors)}")
-    console.print(f"[dim]Year:[/] {paper.year} | [dim]Venue:[/] {paper.venue or 'N/A'}")
+    meta = result.metadata
+    authors_str = ", ".join(f"{a['given']} {a['family']}" for a in meta.authors[:3])
+    if len(meta.authors) > 3:
+        authors_str += f" et al. ({len(meta.authors)} authors)"
+
+    console.print(f"\n[bold green]Found:[/] {meta.title}")
+    console.print(f"[dim]Source:[/] {meta.source} | [dim]Year:[/] {meta.year}")
+    console.print(f"[dim]Venue:[/] {meta.venue or 'N/A'}")
+    console.print(f"[dim]Authors:[/] {authors_str}")
     console.print()
-    console.print(bibtex)
+    console.print(result.bibtex)
 
 
 @app.command()
@@ -270,7 +313,10 @@ def search(
     )
 
     generator = BibtexGenerator(api_key=api_key)
-    results = generator.search_by_query(query, limit=limit)
+    try:
+        results = generator.search_by_query(query, limit=limit)
+    finally:
+        generator.close()
 
     if not results:
         console.print(f"[bold red]No results found for:[/] {query}")
@@ -278,10 +324,10 @@ def search(
 
     console.print(f"[bold blue]Found {len(results)} result(s) for:[/] {query}\n")
 
-    for i, (bibtex, paper) in enumerate(results, 1):
-        venue_short = paper.get_venue_short() or "N/A"
-        console.print(f"[bold cyan]#{i}[/] {paper.title} ({paper.year}, {venue_short})\n")
-        console.print(bibtex)
+    for i, result in enumerate(results, 1):
+        venue = result.metadata.venue or "N/A"
+        console.print(f"[bold cyan]#{i}[/] {result.metadata.title} ({result.metadata.year}, {venue})\n")
+        console.print(result.bibtex)
         console.print()
 
 
@@ -303,8 +349,9 @@ def _print_actionable_results(report) -> None:
             for mismatch in result.mismatches:
                 sim_str = f" (similarity: {mismatch.similarity:.0%})" if mismatch.similarity else ""
                 console.print(f"    [red]{mismatch.field_name}[/]{sim_str}")
-                console.print(f"      bibtex: {' '.join(mismatch.bibtex_value.split())}")
-                console.print(f"      Semantic Scholar: {' '.join(mismatch.semantic_scholar_value.split())}")
+                console.print(f"    {'yours:':>10} {' '.join(mismatch.bibtex_value.split())}")
+                source_label = f"{mismatch.source}:"
+                console.print(f"    {source_label:>10} {' '.join(mismatch.fetched_value.split())}")
 
     # 2. Other failures (paper not found, API errors)
     other_failures = [
@@ -331,9 +378,10 @@ def _print_actionable_results(report) -> None:
         for result in entries_with_warnings:
             console.print(f"\n  [cyan]{result.entry_key}[/]:")
             for warning in result.warnings:
-                console.print(f"    [yellow]{warning.field_name}[/]:")
-                console.print(f"      bibtex: {warning.bibtex_value}")
-                console.print(f"      Semantic Scholar: {warning.semantic_scholar_value}")
+                console.print(f"    [yellow]{warning.field_name}[/]")
+                console.print(f"    {'yours:':>10} {' '.join(warning.bibtex_value.split())}")
+                source_label = f"{warning.source}:"
+                console.print(f"    {source_label:>10} {' '.join(warning.fetched_value.split())}")
 
     # 5. Fixed entries
     fixed_entries = [r for r in report.results if r.fixed and r.mismatches]
@@ -342,9 +390,9 @@ def _print_actionable_results(report) -> None:
         for result in fixed_entries:
             console.print(f"\n  [cyan]{result.entry_key}[/]:")
             for mismatch in result.mismatches:
-                console.print(f"    [yellow]{mismatch.field_name}[/]")
+                console.print(f"    [yellow]{mismatch.field_name}[/] (from {mismatch.source})")
                 console.print(f"      [red]old:[/] {' '.join(mismatch.bibtex_value.split())}")
-                console.print(f"      [green]new:[/] {' '.join(mismatch.semantic_scholar_value.split())}")
+                console.print(f"      [green]new:[/] {' '.join(mismatch.fetched_value.split())}")
 
     # 6. Auto-found paper_ids
     auto_found = [r for r in report.results if r.auto_found_paper_id and r.success]

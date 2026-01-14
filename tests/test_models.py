@@ -8,40 +8,6 @@ from bibtools.models import (
 )
 
 
-class TestPaperInfo:
-    """Tests for PaperInfo dataclass."""
-
-    def test_create_paper_info(self, make_paper):
-        """Test creating a PaperInfo instance with bibtex."""
-        paper = make_paper(
-            paper_id="abc123",
-            title="Test Paper",
-            authors=["John Doe", "Jane Smith"],
-            year=2024,
-            venue="CoRL",
-        )
-        assert paper.paper_id == "abc123"
-        assert paper.title == "Test Paper"
-        assert paper.authors == ["John Doe", "Jane Smith"]
-        assert paper.year == 2024
-        assert paper.venue == "CoRL"
-
-    def test_create_paper_info_minimal(self, make_paper):
-        """Test creating a PaperInfo with minimal fields."""
-        paper = make_paper(paper_id="abc123", title="Test Paper", authors=["Author"], year=2024)
-        assert paper.venue is None
-
-    def test_get_venue_short_known(self, make_paper):
-        """Test getting short venue name for known conferences."""
-        paper = make_paper(paper_id="abc", venue="Conference on Robot Learning")
-        assert paper.get_venue_short() == "CoRL"
-
-    def test_get_venue_short_unknown(self, make_paper):
-        """Test getting short venue name for unknown venue."""
-        paper = make_paper(paper_id="abc", venue="Some Random Journal")
-        assert paper.get_venue_short() == "Some Random Journal"
-
-
 class TestVerificationResult:
     """Tests for VerificationResult dataclass."""
 
@@ -54,7 +20,7 @@ class TestVerificationResult:
         )
         assert result.entry_key == "test2024"
         assert result.success is True
-        assert result.paper_info is None
+        assert result.metadata is None
 
     def test_create_failed_result(self):
         """Test creating a failed verification result."""
@@ -116,7 +82,7 @@ class TestVerificationReport:
             entry_key="test2024",
             success=True,
             message="Verified with warning",
-            warnings=[FieldMismatch(field_name="title", bibtex_value="test", semantic_scholar_value="Test")],
+            warnings=[FieldMismatch(field_name="title", bibtex_value="test", fetched_value="Test", source="S2")],
         )
         report.add_result(result)
         assert report.total_entries == 1
@@ -138,7 +104,7 @@ class TestVerificationStatus:
             entry_key="test",
             success=True,
             message="OK",
-            warnings=[FieldMismatch(field_name="title", bibtex_value="a", semantic_scholar_value="A")],
+            warnings=[FieldMismatch(field_name="title", bibtex_value="a", fetched_value="A", source="S2")],
         )
         assert result.status == VerificationStatus.WARNING
 
@@ -153,7 +119,9 @@ class TestVerificationStatus:
             entry_key="test",
             success=False,
             message="Mismatch",
-            mismatches=[FieldMismatch(field_name="year", bibtex_value="2023", semantic_scholar_value="2024")],
+            mismatches=[
+                FieldMismatch(field_name="year", bibtex_value="2023", fetched_value="2024", source="crossref")
+            ],
         )
         assert result.status == VerificationStatus.FAIL
 
@@ -163,7 +131,9 @@ class TestVerificationStatus:
             entry_key="test",
             success=True,
             message="Fixed",
-            mismatches=[FieldMismatch(field_name="year", bibtex_value="2023", semantic_scholar_value="2024")],
+            mismatches=[
+                FieldMismatch(field_name="year", bibtex_value="2023", fetched_value="2024", source="crossref")
+            ],
             fixed=True,
         )
         assert result.status == VerificationStatus.PASS
@@ -189,7 +159,7 @@ class TestVerificationReportOverallStatus:
                 entry_key="b",
                 success=True,
                 message="OK",
-                warnings=[FieldMismatch(field_name="title", bibtex_value="a", semantic_scholar_value="A")],
+                warnings=[FieldMismatch(field_name="title", bibtex_value="a", fetched_value="A", source="S2")],
             )
         )
         assert report.overall_status == VerificationStatus.WARNING
