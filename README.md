@@ -4,19 +4,34 @@
 
 ## Why?
 
-Google Scholar often shows wrong venue for arXiv papers that were later published:
+**Google Scholar and Semantic Scholar have errors across all fields** (tested on [13 papers](comparison.md)):
 
-| Paper | Venue | Google Scholar | bibtools |
-|-------|-------|----------------|----------|
-| TD-MPC | ICML 2022 | ❌ arXiv | ✓ ICML |
-| StreamingLLM | ICLR 2024 | ❌ arXiv 2023 | ✓ ICLR |
-| OpenVLA | CoRL 2024 | ❌ arXiv | ✓ CoRL |
-| UP-VLA | ICML 2025 | ❌ arXiv | ✓ ICML |
+| | GS | S2 | bibtools |
+|---|---|---|---|
+| venue | 6/13 wrong (arXiv) | 7/13 wrong (arXiv) | 1/13 wrong* |
+| year | 1/13 wrong | 5/13 wrong | ✓ |
+| title | Lowercases acronyms | ✓ | ✓ |
+| author | Truncates ("and others") | Abbreviates, missing/extra | ✓ |
+
+\* FLOWER (CoRL 2025) — too recent for DBLP/S2 to have updated
+
+**Official sources are always correct** but require manual effort.
+
+**bibtools matches official sources** by fetching from CrossRef/DBLP/arXiv directly:
+
+| Paper | Venue | GS | S2 | Official | bibtools |
+|-------|-------|:--:|:--:|:--------:|:--------:|
+| ResNet | CVPR 2016 | ✓ | ✗ year | ✓ | ✓ |
+| Attention Is All You Need | NeurIPS 2017 | ✓ | ✓ | ✓ | ✓ |
+| DiT | ICCV 2023 | ✓ | ✗ year | ✓ | ✓ |
+| StreamingLLM | ICLR 2024 | ✗ arXiv | ✗ arXiv | ✓ | ✓ |
+| UP-VLA | ICML 2025 | ✗ arXiv | ✗ arXiv | ✓ | ✓ |
+| Sliding Windows Are Not the End | ACL 2025 | ✓ | ✗ arXiv | ✓ | ✓ |
+| FLOWER | CoRL 2025 | ✗ arXiv | ✗ arXiv | ✓ | ✗ arXiv |
 
 ```
-$ bibtools fetch ARXIV:2203.04955
-Found: Temporal Difference Learning for Model Predictive Control
-Source: dblp | Venue: ICML | Year: 2022
+$ bibtools fetch ARXIV:2106.09685   # LoRA
+Source: dblp | Venue: ICLR | Year: 2022
 ```
 
 → [Full comparison](comparison.md)
