@@ -52,7 +52,7 @@ It uses data from official sources only:
 
 Semantic Scholar is used only for identifier resolution, not as a metadata source.
 
-→ [Comparison with Google Scholar](docs/comparison_with_google_scholar.md)
+→ [Comparison with Google Scholar/Official sources](comparison.md)
 
 ---
 
