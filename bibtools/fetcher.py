@@ -91,6 +91,13 @@ class ArxivClient:
         name = " ".join(name.split())
         if not name:
             return None
+        # Filter out invalid author names (single words that are not names)
+        # e.g., "NVIDIA", ":", organization names used as author placeholders
+        if len(name) <= 2 or not any(c.isalpha() for c in name):
+            return None
+        # Skip if it looks like an organization (all caps, no spaces)
+        if " " not in name and name.isupper():
+            return None
         parts = name.rsplit(None, 1)
         if len(parts) == 2:
             return Author(given=parts[0], family=parts[1])
