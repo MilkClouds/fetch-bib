@@ -225,3 +225,8 @@ Auto-found paper_id is written on PASS and WARNING.
 | arXiv | No official limit | No throttling |
 
 Set `SEMANTIC_SCHOLAR_API_KEY` environment variable or use `--api-key` for faster requests.
+
+## Related Projects
+
+- [**rebiber**](https://github.com/yuchenlin/rebiber) — A tool for normalizing bibtex with official info (DBLP, ACL anthology).
+- [**SimBiber**](https://github.com/MLNLP-World/SimBiber) — A tool for simplifying bibtex with official info.
