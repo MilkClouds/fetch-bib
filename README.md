@@ -174,10 +174,16 @@ Examples:
 }
 ```
 
+**Format:** `% paper_id: {id}, verified via {verifier} (YYYY.MM.DD)`
+
+- `{verifier}` can be: `bibtools`, `Claude`, `human`, or any identifier
+- Date is **required** — entries without date are treated as unverified and will fail
+
 States:
-- `% paper_id: ARXIV:xxx` - paper_id only (WARNING result, will be re-verified)
-- `% paper_id: ARXIV:xxx, verified via bibtools (YYYY.MM.DD)` - PASS (skipped on future runs)
-- `% paper_id: DOI:xxx, verified via human(Name) (YYYY.MM.DD)` - human verified
+- `% paper_id: ARXIV:xxx` — unverified (WARNING, will be re-verified)
+- `% paper_id: ARXIV:xxx, verified via bibtools (YYYY.MM.DD)` — verified (skipped)
+- `% paper_id: ARXIV:xxx, verified via Claude (YYYY.MM.DD)` — manually verified
+- `% paper_id: SKIP, verified via human (YYYY.MM.DD)` — skip entry (tech reports, etc.)
 
 **Verification comment behavior:**
 - **PASS**: Adds `verified via bibtools (date)` → skipped on future runs

@@ -12,6 +12,7 @@ from .models import FieldMismatch, PaperMetadata, VerificationReport, Verificati
 from .parser import (
     extract_paper_id_from_entry,
     generate_verification_comment,
+    has_missing_date,
     is_entry_verified,
     parse_bib_file,
 )
@@ -402,6 +403,18 @@ class BibVerifier:
         entries_to_verify: list[tuple[dict, str, str, bool]] = []  # (entry, paper_id, source, auto_found)
         for entry in entries:
             entry_key = entry.get("ID", "unknown")
+
+            # Check for missing date in verification comment (error)
+            if has_missing_date(content, entry_key):
+                report.add_result(
+                    VerificationResult(
+                        entry_key=entry_key,
+                        success=False,
+                        message="Verification comment missing date. Use format: verified via {verifier} (YYYY.MM.DD)",
+                        missing_date=True,
+                    )
+                )
+                continue
 
             # Check if already verified and should skip
             is_verified, date_str, _ = is_entry_verified(content, entry_key)
