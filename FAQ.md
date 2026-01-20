@@ -84,7 +84,7 @@ Examples:
 ## Comment Format
 
 ```bibtex
-% paper_id: ARXIV:2106.15928, verified via bibtools (2025.01.06)
+% paper_id: ARXIV:2106.15928, verified via bibtools@0.2.0 (2025.01.06)
 @inproceedings{example2024,
   title = {Example Paper},
   ...

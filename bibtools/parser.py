@@ -8,6 +8,7 @@ import bibtexparser
 from bibtexparser.bparser import BibTexParser
 from bibtexparser.customization import convert_to_unicode
 
+from . import __version__
 from .constants import AUTO_FIND_ID, AUTO_FIND_NONE
 
 # Regex patterns for paper_id comments
@@ -206,8 +207,6 @@ def generate_verification_comment(paper_id: str, include_verified: bool = True) 
         - With include_verified=False: "% paper_id: {paper_id}"
     """
     if include_verified:
-        from . import __version__
-
         today = date.today().strftime("%Y.%m.%d")
         return f"% paper_id: {paper_id}, verified via bibtools@{__version__} ({today})"
     else:

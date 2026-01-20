@@ -19,7 +19,7 @@ from .models import Author, PaperMetadata
 from .rate_limiter import get_rate_limiter
 from .semantic_scholar import ResolvedIds, SemanticScholarClient
 from .utils import unicode_to_latex
-from .venue_aliases import get_canonical_venue
+from .venue_aliases import get_dblp_search_venue
 
 # =============================================================================
 # Exceptions
@@ -248,10 +248,7 @@ class DBLPClient:
         def build_query(search_venue: str | None) -> str:
             query = title
             if search_venue:
-                canonical = get_canonical_venue(search_venue)
-                resolved_venue = canonical if canonical else search_venue
-                if resolved_venue.upper() == "NEURIPS":
-                    resolved_venue = "NIPS"
+                resolved_venue = get_dblp_search_venue(search_venue)
                 query = f"{title} {resolved_venue}"
             return query
 
