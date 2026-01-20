@@ -353,11 +353,18 @@ def _print_actionable_results(report) -> None:
                 source_label = f"{mismatch.source}:"
                 console.print(f"    {source_label:>10} {' '.join(mismatch.fetched_value.split())}")
 
-    # 2. Other failures (paper not found, API errors)
+    # 2. Missing date errors (verified via without date)
+    missing_date_errors = [r for r in report.results if r.missing_date]
+    if missing_date_errors:
+        console.print("\n[bold red]✗ Missing date (required format: verified via {verifier} (YYYY.MM.DD)):[/]")
+        for result in missing_date_errors:
+            console.print(f"  [cyan]{result.entry_key}[/]: {result.message}")
+
+    # 3. Other failures (paper not found, API errors)
     other_failures = [
         r
         for r in report.results
-        if not r.success and not r.mismatches and not r.no_paper_id and not r.already_verified
+        if not r.success and not r.mismatches and not r.no_paper_id and not r.already_verified and not r.missing_date
     ]
     if other_failures:
         console.print("\n[bold red]✗ Errors:[/]")
@@ -419,6 +426,8 @@ def _print_summary(report) -> None:
     console.print(f"  [dim]Already verified: {report.already_verified}[/]")
     if report.no_paper_id > 0:
         console.print(f"  [yellow]No paper_id: {report.no_paper_id}[/]")
+    if report.missing_date > 0:
+        console.print(f"  [red]Missing date: {report.missing_date}[/]")
     if report.failed > 0:
         console.print(f"  [red]Failed: {report.failed}[/]")
 

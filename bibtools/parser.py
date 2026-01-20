@@ -8,15 +8,22 @@ import bibtexparser
 from bibtexparser.bparser import BibTexParser
 from bibtexparser.customization import convert_to_unicode
 
+from . import __version__
 from .constants import AUTO_FIND_ID, AUTO_FIND_NONE
 
 # Regex patterns for paper_id comments
 # Format 1: "% paper_id: {paper_id}" (unverified, just paper_id)
-# Format 2: "% paper_id: {paper_id}, verified via bibtools (YYYY.MM.DD)"
-# Format 3: "% paper_id: {paper_id}, verified via human({name}) (YYYY.MM.DD)"
-# Note: human may have optional space before parentheses: "human(name)" or "human (name)"
+# Format 2: "% paper_id: {paper_id}, verified via {verifier} (YYYY.MM.DD)" (verified)
+# Note: verifier can be any identifier (bibtools, Claude, human, etc.)
+# Date is REQUIRED for verification - entries without date are treated as unverified
 PAPER_ID_PATTERN = re.compile(
-    r"^%\s*paper_id:\s*(\S+?)(?:,\s*verified\s+via\s+(bibtools|human\s*\([^)]+\))\s*\((\d{4}\.\d{2}\.\d{2})\))?$",
+    r"^%\s*paper_id:\s*(\S+?)(?:,\s*verified\s+via\s+(\S+)\s*\((\d{4}\.\d{2}\.\d{2})\))?$",
+    re.IGNORECASE,
+)
+
+# Pattern to detect "verified via" without date (for error messages)
+MISSING_DATE_PATTERN = re.compile(
+    r"^%\s*paper_id:\s*\S+?,\s*verified\s+via\s+\S+\s*$",
     re.IGNORECASE,
 )
 
@@ -69,9 +76,9 @@ def is_entry_verified(content: str, entry_key: str) -> tuple[bool, str | None, s
 
     Returns:
         Tuple of (is_verified, date_str, paper_id).
-        - is_verified: True if verified via bibtools or human
+        - is_verified: True if verified with date (verified via {verifier} (YYYY.MM.DD))
         - date_str: Verification date in YYYY.MM.DD format (None if unverified)
-        - paper_id: Paper ID from the comment (may be None if unverified)
+        - paper_id: Paper ID from the comment (may be None if not found)
     """
     comments = get_entry_comments(content, entry_key)
     if not comments:
@@ -82,13 +89,35 @@ def is_entry_verified(content: str, entry_key: str) -> tuple[bool, str | None, s
         match = PAPER_ID_PATTERN.match(line_stripped)
         if match:
             paper_id = match.group(1)
-            verifier = match.group(2)  # "bibtools" or "human(...)" or None
+            verifier = match.group(2)  # verifier name or None
             date_str = match.group(3)  # YYYY.MM.DD or None
-            # Entry is verified if verifier is present
-            is_verified = verifier is not None
+            # Entry is verified only if both verifier and date are present
+            is_verified = verifier is not None and date_str is not None
             return is_verified, date_str, paper_id
 
     return False, None, None
+
+
+def has_missing_date(content: str, entry_key: str) -> bool:
+    """Check if an entry has 'verified via' without a date.
+
+    Args:
+        content: Raw file content.
+        entry_key: Bibtex entry key.
+
+    Returns:
+        True if entry has 'verified via {verifier}' without date.
+    """
+    comments = get_entry_comments(content, entry_key)
+    if not comments:
+        return False
+
+    for line in comments.strip().split("\n"):
+        line_stripped = line.strip()
+        if MISSING_DATE_PATTERN.match(line_stripped):
+            return True
+
+    return False
 
 
 def extract_paper_id_from_comments(content: str, entry_key: str) -> str | None:
@@ -96,8 +125,7 @@ def extract_paper_id_from_comments(content: str, entry_key: str) -> str | None:
 
     Formats:
     - "% paper_id: {id}" (unverified)
-    - "% paper_id: {id}, verified via bibtools (YYYY.MM.DD)"
-    - "% paper_id: {id}, verified via human({name}) (YYYY.MM.DD)"
+    - "% paper_id: {id}, verified via {verifier} (YYYY.MM.DD)" (verified)
 
     Args:
         content: Raw file content.
@@ -170,16 +198,16 @@ def generate_verification_comment(paper_id: str, include_verified: bool = True) 
 
     Args:
         paper_id: Paper ID used for lookup (e.g., "ARXIV:2106.15928").
-        include_verified: If True, include "verified via bibtools (date)" suffix.
+        include_verified: If True, include "verified via bibtools@version (date)" suffix.
                           If False, only include paper_id.
 
     Returns:
         Single-line verification comment string.
-        - With include_verified=True: "% paper_id: {paper_id}, verified via bibtools (YYYY.MM.DD)"
+        - With include_verified=True: "% paper_id: {paper_id}, verified via bibtools@x.y.z (YYYY.MM.DD)"
         - With include_verified=False: "% paper_id: {paper_id}"
     """
     if include_verified:
         today = date.today().strftime("%Y.%m.%d")
-        return f"% paper_id: {paper_id}, verified via bibtools ({today})"
+        return f"% paper_id: {paper_id}, verified via bibtools@{__version__} ({today})"
     else:
         return f"% paper_id: {paper_id}"

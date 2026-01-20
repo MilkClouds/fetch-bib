@@ -135,6 +135,27 @@ def venues_match(venue1: str, venue2: str) -> bool:
     return False
 
 
+def get_dblp_search_venue(venue: str) -> str:
+    """Get venue name suitable for DBLP search queries.
+
+    DBLP uses historical venue names (e.g., "NIPS" instead of "NeurIPS").
+
+    Args:
+        venue: Venue name to convert.
+
+    Returns:
+        Venue name for DBLP search.
+    """
+    canonical = get_canonical_venue(venue)
+    resolved = canonical if canonical else venue
+
+    # DBLP uses "NIPS" for NeurIPS papers
+    if resolved.upper() == "NEURIPS":
+        return "NIPS"
+
+    return resolved
+
+
 def get_venue_short(venue: str, max_len: int = 50) -> str:
     """Get a short venue name for display (e.g., verification comments).
 

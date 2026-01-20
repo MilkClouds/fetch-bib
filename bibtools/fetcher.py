@@ -19,7 +19,7 @@ from .models import Author, PaperMetadata
 from .rate_limiter import get_rate_limiter
 from .semantic_scholar import ResolvedIds, SemanticScholarClient
 from .utils import unicode_to_latex
-from .venue_aliases import get_canonical_venue
+from .venue_aliases import get_dblp_search_venue
 
 # =============================================================================
 # Exceptions
@@ -185,6 +185,8 @@ class CrossRefClient:
     def _parse_metadata(self, message: dict, doi: str) -> CrossRefMetadata:
         titles = message.get("title", [])
         title = titles[0] if titles else ""
+        # Strip HTML tags (CrossRef sometimes includes <b>, <i>, <sub>, <sup>, etc.)
+        title = re.sub(r"<[^>]+>", "", title)
 
         authors: list[Author] = []
         for author in message.get("author", []):
@@ -243,36 +245,37 @@ class DBLPClient:
         if not title:
             return None
 
-        try:
+        def build_query(search_venue: str | None) -> str:
             query = title
-            if venue:
-                canonical = get_canonical_venue(venue)
-                search_venue = canonical if canonical else venue
-                if search_venue.upper() == "NEURIPS":
-                    search_venue = "NIPS"
-                query = f"{title} {search_venue}"
+            if search_venue:
+                resolved_venue = get_dblp_search_venue(search_venue)
+                query = f"{title} {resolved_venue}"
+            return query
 
-            logger.debug(f"DBLP title search: {query[:80]}...")
+        try:
+            for attempt_venue in (venue, None):
+                query = build_query(attempt_venue)
+                logger.debug(f"DBLP title search: {query[:80]}...")
 
-            resp = self._client.get(
-                f"{self.BASE_URL}/search/publ/api",
-                params={"q": query, "format": "json", "h": 10},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+                resp = self._client.get(
+                    f"{self.BASE_URL}/search/publ/api",
+                    params={"q": query, "format": "json", "h": 10},
+                )
+                resp.raise_for_status()
+                data = resp.json()
 
-            hits = data.get("result", {}).get("hits", {}).get("hit", [])
-            if not hits:
-                return None
-
-            for hit in hits:
-                info = hit.get("info", {})
-                hit_key = info.get("key", "")
-                if hit_key.startswith("journals/corr"):
+                hits = data.get("result", {}).get("hits", {}).get("hit", [])
+                if not hits:
                     continue
-                hit_title = (info.get("title") or "").rstrip(".")
-                if self._titles_match(title, hit_title):
-                    return self._parse_info(info, hit_key)
+
+                for hit in hits:
+                    info = hit.get("info", {})
+                    hit_key = info.get("key", "")
+                    if hit_key.startswith("journals/corr"):
+                        continue
+                    hit_title = (info.get("title") or "").rstrip(".")
+                    if self._titles_match(title, hit_title):
+                        return self._parse_info(info, hit_key)
 
             return None
 

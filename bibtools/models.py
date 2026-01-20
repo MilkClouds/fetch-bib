@@ -127,6 +127,7 @@ class VerificationResult:
     already_verified: bool = False
     needs_update: bool = False
     no_paper_id: bool = False  # Entry has no paper_id (warning)
+    missing_date: bool = False  # Entry has "verified via" without date (error)
     paper_id_used: str | None = None  # The paper_id used for lookup
     auto_found_paper_id: bool = False  # True if paper_id was auto-found (not from comment)
     paper_id_source: str | None = None  # Source of paper_id: "comment", "doi", "eprint"
@@ -138,10 +139,12 @@ class VerificationResult:
     def status(self) -> VerificationStatus:
         """Get verification status for this entry.
 
-        - FAIL: Has mismatches (not fixed) or lookup failed
+        - FAIL: Has mismatches (not fixed) or lookup failed or missing date
         - WARNING: Passed but has warnings (e.g., title case difference)
         - PASS: All checks passed with no warnings
         """
+        if self.missing_date:
+            return VerificationStatus.FAIL
         if self.mismatches and not self.fixed:
             return VerificationStatus.FAIL
         if not self.success and not self.already_verified and not self.no_paper_id:
@@ -163,6 +166,7 @@ class VerificationReport:
     already_verified: int = 0
     failed: int = 0
     no_paper_id: int = 0  # Entries without paper_id (warnings)
+    missing_date: int = 0  # Entries with "verified via" without date (errors)
     fixed: int = 0  # Entries with auto-fixed fields
     results: list[VerificationResult] = field(default_factory=list)
 
@@ -172,6 +176,9 @@ class VerificationReport:
         self.total_entries += 1
         if result.already_verified:
             self.already_verified += 1
+        elif result.missing_date:
+            self.missing_date += 1
+            self.failed += 1
         elif result.no_paper_id:
             self.no_paper_id += 1
         elif result.fixed:
