@@ -137,82 +137,18 @@ Searches papers and generates bibtex. **Use with caution** - results may not mat
 bibtools search "Attention Is All You Need" --limit 3
 ```
 
-## Verification Logic
+## Verification Strictness
 
-### Status: PASS / WARNING / FAIL
+bibtools is **strict by design** — it rejects abbreviations and ambiguous matches:
 
-| Status | Exit | Meaning |
-|--------|------|---------|
-| **PASS** | 0 | All fields match |
-| **WARNING** | 1 | Tolerable mismatch (format/case differs) |
-| **FAIL** | 2 | Content mismatch or error |
+| Case | Result | Reason |
+|------|--------|--------|
+| `Smith, John` vs `John Smith` | ✓ PASS | Format difference only |
+| `{GPT}` vs `GPT` | ⚠ WARNING | LaTeX braces difference |
+| `M. Posner` vs `Michael Posner` | ✗ FAIL | Abbreviation = content change |
+| `NeurIPS` vs `Neural Information Processing Systems` | ⚠ WARNING | Known alias |
 
-Overall result = worst individual status.
-
-### Field Comparison
-
-| Field | PASS | WARNING | FAIL |
-|-------|------|---------|------|
-| **title** | Exact match | Case/braces differ | Content mismatch |
-| **author** | Exact match | Format differs | Content mismatch |
-| **year** | Exact match | - | Mismatch |
-| **venue** | Exact match | Alias match | Mismatch |
-
-Examples:
-- `{Deep Learning}` vs `Deep Learning` → WARNING (braces)
-- `Smith, John` vs `John Smith` → WARNING (format)
-- `M. Posner` vs `Michael Posner` → FAIL (abbreviation = content change)
-- `NeurIPS` vs `Neural Information Processing Systems` → WARNING (alias)
-
-## Comment Format
-
-```bibtex
-% paper_id: ARXIV:2106.15928, verified via bibtools (2025.01.06)
-@inproceedings{example2024,
-  title = {Example Paper},
-  ...
-}
-```
-
-**Format:** `% paper_id: {id}, verified via {verifier} (YYYY.MM.DD)`
-
-- `{verifier}` can be: `bibtools`, `Claude`, `human`, or any identifier
-- Date is **required** — entries without date are treated as unverified and will fail
-
-States:
-- `% paper_id: ARXIV:xxx` — unverified (WARNING, will be re-verified)
-- `% paper_id: ARXIV:xxx, verified via bibtools (YYYY.MM.DD)` — verified (skipped)
-- `% paper_id: ARXIV:xxx, verified via Claude (YYYY.MM.DD)` — manually verified
-- `% paper_id: SKIP, verified via human (YYYY.MM.DD)` — skip entry (tech reports, etc.)
-
-**Verification comment behavior:**
-- **PASS**: Adds `verified via bibtools (date)` → skipped on future runs
-- **WARNING**: Adds `paper_id` only → re-verified on future runs
-- Use `--mark-warnings-verified` to mark WARNING as verified (skip future re-verification)
-
-## Auto-find Levels
-
-| Level | Sources | Use case |
-|-------|---------|----------|
-| `none` | `% paper_id:` comment only | Strict, required for `--fix-*` |
-| `id` | comment > `doi` > `eprint` | Default |
-| `title` | Above + title search | Risky |
-
-Auto-found paper_id is written on PASS and WARNING.
-
-## Options
-
-| Option | Description |
-|--------|-------------|
-| `--dry-run` | Preview without modifying |
-| `--auto-find=none/id/title` | Paper ID discovery (default: id) |
-| `--fix-errors` | Auto-fix ERROR fields (requires --auto-find=none) |
-| `--fix-warnings` | Auto-fix WARNING fields (requires --auto-find=none) |
-| `--mark-warnings-verified` | Mark WARNING entries as verified (skip future runs) |
-| `--reverify` | Re-verify verified entries |
-| `--max-age=N` | Re-verify entries older than N days |
-| `-o FILE` | Output to different file |
-| `--api-key` | Semantic Scholar API key |
+→ [Full verification rules](FAQ.md#field-comparison-rules)
 
 ## Supported Paper IDs
 
@@ -222,15 +158,9 @@ Auto-found paper_id is written on PASS and WARNING.
 - `ACL:W12-3903`
 - `PMID:19872477`
 
-## Rate Limits
+## More Information
 
-| API | Limit | Implementation |
-|-----|-------|----------------|
-| Semantic Scholar | 1 req/sec (with key), 100 req/5min (no key) | 1s or 3s interval |
-| CrossRef | 50 req/sec (official) | 0.02s interval (50 req/sec) |
-| arXiv | No official limit | No throttling |
-
-Set `SEMANTIC_SCHOLAR_API_KEY` environment variable or use `--api-key` for faster requests.
+→ [FAQ & Troubleshooting](FAQ.md) — Limitations, verification behavior, options reference
 
 ## Related Projects
 

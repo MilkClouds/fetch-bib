@@ -185,6 +185,8 @@ class CrossRefClient:
     def _parse_metadata(self, message: dict, doi: str) -> CrossRefMetadata:
         titles = message.get("title", [])
         title = titles[0] if titles else ""
+        # Strip HTML tags (CrossRef sometimes includes <b>, <i>, <sub>, <sup>, etc.)
+        title = re.sub(r"<[^>]+>", "", title)
 
         authors: list[Author] = []
         for author in message.get("author", []):

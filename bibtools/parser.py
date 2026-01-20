@@ -197,16 +197,18 @@ def generate_verification_comment(paper_id: str, include_verified: bool = True) 
 
     Args:
         paper_id: Paper ID used for lookup (e.g., "ARXIV:2106.15928").
-        include_verified: If True, include "verified via bibtools (date)" suffix.
+        include_verified: If True, include "verified via bibtools@version (date)" suffix.
                           If False, only include paper_id.
 
     Returns:
         Single-line verification comment string.
-        - With include_verified=True: "% paper_id: {paper_id}, verified via bibtools (YYYY.MM.DD)"
+        - With include_verified=True: "% paper_id: {paper_id}, verified via bibtools@x.y.z (YYYY.MM.DD)"
         - With include_verified=False: "% paper_id: {paper_id}"
     """
     if include_verified:
+        from . import __version__
+
         today = date.today().strftime("%Y.%m.%d")
-        return f"% paper_id: {paper_id}, verified via bibtools ({today})"
+        return f"% paper_id: {paper_id}, verified via bibtools@{__version__} ({today})"
     else:
         return f"% paper_id: {paper_id}"
