@@ -208,6 +208,6 @@ def generate_verification_comment(paper_id: str, include_verified: bool = True) 
     """
     if include_verified:
         today = date.today().strftime("%Y.%m.%d")
-        return f"% paper_id: {paper_id}, verified via bibtools@{__version__} ({today})"
+        return f"% paper_id: {paper_id}, verified via bibtools {__version__} ({today})"
     else:
         return f"% paper_id: {paper_id}"

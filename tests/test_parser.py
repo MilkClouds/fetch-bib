@@ -150,7 +150,7 @@ class TestGenerateVerificationComment:
         comment = generate_verification_comment("ARXIV:2106.15928")
         # Format: "% paper_id: {id}, verified via bibtools@x.y.z (YYYY.MM.DD)"
         assert comment.startswith("% paper_id: ARXIV:2106.15928")
-        assert ", verified via bibtools@" in comment
+        assert ", verified via bibtools " in comment
         # Should be single line
         assert "\n" not in comment
 
@@ -158,7 +158,7 @@ class TestGenerateVerificationComment:
         """Test generating comment with DOI paper_id."""
         comment = generate_verification_comment("DOI:10.1234/example")
         assert comment.startswith("% paper_id: DOI:10.1234/example")
-        assert ", verified via bibtools@" in comment
+        assert ", verified via bibtools " in comment
 
 
 class TestExtractPaperId:
