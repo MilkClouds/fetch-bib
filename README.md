@@ -161,6 +161,7 @@ Interactively fix mismatches detected by `verify`.
 
 ```bash
 bibtools review main.bib
+bibtools review main.bib --verified-via "human(Alice)"
 bibtools review main.bib --include-warnings
 ```
 

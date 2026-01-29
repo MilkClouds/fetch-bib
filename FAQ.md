@@ -128,6 +128,7 @@ Interactive fixes for mismatches.
 
 ```bash
 bibtools review main.bib
+bibtools review main.bib --verified-via "human(Alice)"
 bibtools review main.bib --include-warnings
 ```
 

@@ -8,7 +8,7 @@ from rich.console import Console
 
 from . import __version__
 from .generator import BibtexGenerator
-from .parser import parse_bib_file
+from .parser import extract_paper_id_from_comments, insert_paper_id_comment, parse_bib_file
 from .resolver import BibResolver
 from .verifier import BibVerifier
 
@@ -244,6 +244,13 @@ def review(
             help="Include WARNING entries (format differences) in review.",
         ),
     ] = False,
+    verified_via: Annotated[
+        str | None,
+        typer.Option(
+            "--verified-via",
+            help="Verifier name to record in the comment (e.g., 'human(Alice)').",
+        ),
+    ] = None,
 ) -> None:
     """Interactively review and fix mismatched bibtex entries."""
     console.print(f"\n[bold blue]Reviewing:[/] {bib_file}")
@@ -261,6 +268,9 @@ def review(
     entry_map = {entry.get("ID", ""): entry for entry in entries}
 
     updated_content = content
+    verifier_name = verified_via
+    if not verifier_name:
+        verifier_name = typer.prompt("What's your name?", default="human", show_default=True)
     applied = 0
 
     for result in report.results:
@@ -315,6 +325,17 @@ def review(
             continue
 
         updated_content = verifier.apply_field_fixes(updated_content, entry, result.metadata, selected)
+        paper_id = extract_paper_id_from_comments(updated_content, result.entry_key)
+        if paper_id:
+            updated_content = insert_paper_id_comment(
+                updated_content,
+                result.entry_key,
+                paper_id,
+                include_verified=True,
+                verifier_name=verifier_name,
+            )
+        else:
+            console.print(f"[yellow]Missing paper_id comment for {result.entry_key}; cannot mark verified.[/]")
         applied += 1
 
     if applied == 0:

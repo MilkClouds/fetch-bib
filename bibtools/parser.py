@@ -193,7 +193,11 @@ def extract_paper_id_from_entry(
     return None, None
 
 
-def generate_verification_comment(paper_id: str, include_verified: bool = True) -> str:
+def generate_verification_comment(
+    paper_id: str,
+    include_verified: bool = True,
+    verifier_name: str | None = None,
+) -> str:
     """Generate verification comment line.
 
     Args:
@@ -208,7 +212,8 @@ def generate_verification_comment(paper_id: str, include_verified: bool = True) 
     """
     if include_verified:
         today = date.today().strftime("%Y.%m.%d")
-        return f"% paper_id: {paper_id}, verified via bibtools v{__version__} ({today})"
+        verifier = verifier_name or f"bibtools v{__version__}"
+        return f"% paper_id: {paper_id}, verified via {verifier} ({today})"
     else:
         return f"% paper_id: {paper_id}"
 
@@ -219,6 +224,7 @@ def insert_paper_id_comment(
     paper_id: str,
     *,
     include_verified: bool = False,
+    verifier_name: str | None = None,
     extra_comments: list[str] | None = None,
 ) -> str:
     """Insert or replace paper_id comment for a bibtex entry.
@@ -247,7 +253,11 @@ def insert_paper_id_comment(
 
     prefix = content[: match.start()]
 
-    comment = generate_verification_comment(paper_id, include_verified=include_verified)
+    comment = generate_verification_comment(
+        paper_id,
+        include_verified=include_verified,
+        verifier_name=verifier_name,
+    )
 
     # Remove existing paper_id comments (any format)
     existing_paper_id_pattern = re.compile(
