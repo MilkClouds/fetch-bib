@@ -1,7 +1,6 @@
 """Tests for bibtex parser."""
 
 from bibtools.parser import (
-    extract_paper_id_from_comments,
     generate_verification_comment,
     is_entry_verified,
     parse_bib_file,

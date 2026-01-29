@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from bibtools.models import FetchBundle, PaperMetadata
+from bibtools.models import FetchBundle
 from bibtools.utils import (
     compare_authors,
     compare_titles,

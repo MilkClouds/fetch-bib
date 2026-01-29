@@ -19,7 +19,7 @@ from .models import Author, FetchBundle, PaperMetadata
 from .rate_limiter import get_rate_limiter
 from .semantic_scholar import ResolvedIds, SemanticScholarClient
 from .utils import unicode_to_latex
-from .venue_aliases import get_dblp_search_variants, get_dblp_search_venue
+from .venue_aliases import get_dblp_search_variants
 
 # =============================================================================
 # Exceptions
