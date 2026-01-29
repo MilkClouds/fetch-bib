@@ -240,11 +240,11 @@ def review(
             help="Cross-check with arXiv when arXiv ID exists. Detects wrong papers from DBLP/CrossRef.",
         ),
     ] = True,
-    include_warnings: Annotated[
+    allow_warning: Annotated[
         bool,
         typer.Option(
-            "--include-warnings",
-            help="Include WARNING entries (format differences) in review.",
+            "--allow-warning/--no-allow-warning",
+            help="When false (default), WARNING entries are reviewed. When true, warnings are auto-accepted.",
         ),
     ] = False,
     verified_via: Annotated[
@@ -257,6 +257,7 @@ def review(
 ) -> None:
     """Interactively review and fix mismatched bibtex entries."""
     console.print(f"\n[bold blue]Reviewing:[/] {bib_file}")
+    review_warnings = not allow_warning
 
     fetcher = MetadataFetcher(api_key=api_key)
     try:
@@ -294,11 +295,28 @@ def review(
             console.print(f"[red]Error:[/] {result.entry_key} ({result.message})")
             continue
 
+        if result.success and not result.mismatches and not result.warnings and not result.arxiv_conflict:
+            paper_id = extract_paper_id_from_comments(updated_content, result.entry_key) or result.paper_id_used
+            if paper_id and result.metadata:
+                verifier_tag = f"{verifier_name}[source={result.metadata.source or 'unknown'}]"
+                updated_content = insert_paper_id_comment(
+                    updated_content,
+                    result.entry_key,
+                    paper_id,
+                    include_verified=True,
+                    verifier_name=verifier_tag,
+                )
+                console.print(f"[green]Verified:[/] {result.entry_key} (no mismatches)")
+                applied += 1
+            else:
+                console.print(f"[yellow]Missing paper_id comment for {result.entry_key}; cannot mark verified.[/]")
+            continue
+
         if result.mismatches:
             pass
         elif result.arxiv_conflict:
             pass
-        elif include_warnings and result.warnings:
+        elif review_warnings and result.warnings:
             pass
         else:
             continue
@@ -374,7 +392,7 @@ def review(
                 source_label = f"{mismatch.source}:"
                 console.print(f"    {source_label:>10} {' '.join(mismatch.fetched_value.split())}")
 
-        if include_warnings and result.warnings:
+        if review_warnings and result.warnings:
             console.print("[yellow]Warnings:[/]")
             for warning in result.warnings:
                 console.print(f"  [yellow]{warning.field_name}[/]")
@@ -391,7 +409,7 @@ def review(
             if typer.confirm(f"  Replace {mismatch.field_name}?", default=True):
                 selected.append(mismatch)
 
-        if include_warnings:
+        if review_warnings:
             for warning in result.warnings:
                 if typer.confirm(f"  Replace {warning.field_name} (warning)?", default=False):
                     selected.append(warning)
@@ -401,7 +419,7 @@ def review(
             continue
 
         updated_content = apply_field_fixes(updated_content, entry, selected_meta, selected)
-        paper_id = extract_paper_id_from_comments(updated_content, result.entry_key)
+        paper_id = extract_paper_id_from_comments(updated_content, result.entry_key) or result.paper_id_used
         if paper_id:
             verifier_tag = f"{verifier_name}[source={selected_source}]"
             updated_content = insert_paper_id_comment(
