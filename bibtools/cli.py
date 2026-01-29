@@ -11,7 +11,8 @@ from .fetcher import FetchError, MetadataFetcher
 from .models import BibtexEntry
 from .parser import extract_paper_id_from_comments, insert_paper_id_comment, parse_bib_file
 from .resolver import BibResolver
-from .verifier import apply_field_fixes, check_field_mismatches, verify_file
+from .fixer import apply_field_fixes
+from .verifier import check_field_mismatches, verify_file
 
 app = typer.Typer(
     name="bibtools",
