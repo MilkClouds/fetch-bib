@@ -274,6 +274,16 @@ def review(
     applied = 0
 
     for result in report.results:
+        if result.no_paper_id:
+            console.print(f"[yellow]No paper_id:[/] {result.entry_key} (run `bibtools resolve` first)")
+            continue
+        if result.missing_date:
+            console.print(f"[red]Missing date:[/] {result.entry_key} ({result.message})")
+            continue
+        if not result.success and not result.mismatches and not result.warnings:
+            console.print(f"[red]Error:[/] {result.entry_key} ({result.message})")
+            continue
+
         if result.mismatches:
             pass
         elif include_warnings and result.warnings:
