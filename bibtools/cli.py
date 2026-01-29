@@ -580,8 +580,9 @@ def search(
         resolved_list = fetcher.s2_client.search_by_title(query, limit=limit)
         results: list[tuple[str, object]] = []
         for resolved in resolved_list:
-            metadata = fetcher._fetch_with_resolved(resolved)
-            if metadata:
+            bundle = fetcher.fetch_bundle_with_resolved(resolved)
+            if bundle and bundle.selected:
+                metadata = bundle.selected
                 bibtex = BibtexEntry.from_metadata(metadata).to_bibtex(resolved.paper_id)
                 results.append((bibtex, metadata))
     finally:
