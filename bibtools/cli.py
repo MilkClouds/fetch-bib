@@ -288,6 +288,8 @@ def review(
         if result.no_paper_id:
             console.print(f"[yellow]No paper_id:[/] {result.entry_key} (run `bibtools resolve` first)")
             continue
+        if result.already_verified:
+            continue
         if result.missing_date:
             console.print(f"[red]Missing date:[/] {result.entry_key} ({result.message})")
             continue
@@ -342,7 +344,7 @@ def review(
                 return " ".join((value or "").split()).strip()
 
             def _format_authors(pm, max_authors=8):
-                names = [f"{a.get('given','').strip()} {a.get('family','').strip()}".strip() for a in pm.authors]
+                names = [f"{a.get('given', '').strip()} {a.get('family', '').strip()}".strip() for a in pm.authors]
                 names = [n for n in names if n]
                 if not names:
                     return "N/A"
@@ -401,7 +403,21 @@ def review(
                 console.print(f"    {source_label:>10} {' '.join(warning.fetched_value.split())}")
 
         apply_default = True if chose_source else False
-        if not typer.confirm("Apply changes for this entry?", default=apply_default):
+        wants_apply = typer.confirm("Apply changes for this entry?", default=apply_default)
+        if not wants_apply:
+            if result.warnings and not result.mismatches and review_warnings:
+                paper_id = extract_paper_id_from_comments(updated_content, result.entry_key) or result.paper_id_used
+                if paper_id and typer.confirm("Mark verified via for warnings?", default=False):
+                    verifier_tag = f"{verifier_name}[source={selected_source}]"
+                    updated_content = insert_paper_id_comment(
+                        updated_content,
+                        result.entry_key,
+                        paper_id,
+                        include_verified=True,
+                        verifier_name=verifier_tag,
+                    )
+                    console.print(f"[green]Verified:[/] {result.entry_key} (warnings only)")
+                    applied += 1
             continue
 
         selected = []
@@ -411,16 +427,38 @@ def review(
 
         if review_warnings:
             for warning in result.warnings:
-                if typer.confirm(f"  Replace {warning.field_name} (warning)?", default=False):
+                if typer.confirm(f"  Replace {warning.field_name} (warning)?", default=True):
                     selected.append(warning)
 
         if not selected:
-            console.print("[yellow]No fields selected; skipping.[/]")
+            if result.warnings and not result.mismatches and review_warnings:
+                paper_id = extract_paper_id_from_comments(updated_content, result.entry_key) or result.paper_id_used
+                if paper_id and typer.confirm("Mark verified via for warnings?", default=wants_apply):
+                    verifier_tag = f"{verifier_name}[source={selected_source}]"
+                    updated_content = insert_paper_id_comment(
+                        updated_content,
+                        result.entry_key,
+                        paper_id,
+                        include_verified=True,
+                        verifier_name=verifier_tag,
+                    )
+                    console.print(f"[green]Verified:[/] {result.entry_key} (warnings only)")
+                    applied += 1
+                else:
+                    console.print("[yellow]No fields selected; skipping.[/]")
+            else:
+                console.print("[yellow]No fields selected; skipping.[/]")
             continue
 
         updated_content = apply_field_fixes(updated_content, entry, selected_meta, selected)
         paper_id = extract_paper_id_from_comments(updated_content, result.entry_key) or result.paper_id_used
+        has_mismatch_selected = any(item in selected for item in result.mismatches)
+        has_warning_selected = any(item in selected for item in result.warnings)
         if paper_id:
+            if has_warning_selected and not has_mismatch_selected:
+                if not typer.confirm("Mark verified via for warnings?", default=wants_apply):
+                    applied += 1
+                    continue
             verifier_tag = f"{verifier_name}[source={selected_source}]"
             updated_content = insert_paper_id_comment(
                 updated_content,
@@ -430,7 +468,10 @@ def review(
                 verifier_name=verifier_tag,
             )
         else:
-            console.print(f"[yellow]Missing paper_id comment for {result.entry_key}; cannot mark verified.[/]")
+            console.print(
+                f"[yellow]No paper_id available for {result.entry_key} (missing comment and resolved id); "
+                "cannot mark verified.[/]"
+            )
         applied += 1
 
     if applied == 0:
