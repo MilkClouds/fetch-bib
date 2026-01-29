@@ -146,7 +146,6 @@ def extract_paper_id_from_comments(content: str, entry_key: str) -> str | None:
     return None
 
 
-
 def generate_verification_comment(
     paper_id: str,
     include_verified: bool = True,

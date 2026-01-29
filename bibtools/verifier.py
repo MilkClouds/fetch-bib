@@ -73,9 +73,7 @@ def check_field_mismatches(entry: dict, metadata: PaperMetadata) -> tuple[list[F
     if bib_author_field and metadata.authors:
         from .utils import format_author_bibtex_style
 
-        author_names = [
-            format_author_bibtex_style(a.get("given", ""), a.get("family", "")) for a in metadata.authors
-        ]
+        author_names = [format_author_bibtex_style(a.get("given", ""), a.get("family", "")) for a in metadata.authors]
         api_author_str = metadata.get_authors_str()
         match, warning_only = compare_authors(bib_author_field, author_names)
         if not match:
@@ -234,11 +232,7 @@ def _verify_entry_with_resolved(
         )
 
     metadata = bundle.selected
-    if (
-        arxiv_check
-        and metadata.source == "arxiv"
-        and not fetcher._is_arxiv_venue(resolved.venue)
-    ):
+    if arxiv_check and metadata.source == "arxiv" and not fetcher._is_arxiv_venue(resolved.venue):
         return VerificationResult(
             entry_key=entry_key,
             success=False,

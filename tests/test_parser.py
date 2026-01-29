@@ -158,5 +158,3 @@ class TestGenerateVerificationComment:
         comment = generate_verification_comment("DOI:10.1234/example")
         assert comment.startswith("% paper_id: DOI:10.1234/example")
         assert ", verified via bibtools " in comment
-
-

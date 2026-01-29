@@ -185,9 +185,7 @@ class TestVerifyEntry:
         content = "% paper_id: DOI:10.1234/nonexistent\n@article{test2024,}"
         fetcher = MagicMock()
         fetcher.resolve_batch.return_value = {"DOI:10.1234/nonexistent": object()}
-        fetcher.fetch_bundle_with_resolved.return_value = FetchBundle(
-            selected=None, sources={}, arxiv_conflict=False
-        )
+        fetcher.fetch_bundle_with_resolved.return_value = FetchBundle(selected=None, sources={}, arxiv_conflict=False)
         result = verify_entry(entry, content, fetcher=fetcher)
         assert result.success is False
         assert "Paper not found" in result.message
