@@ -280,7 +280,7 @@ def review(
     updated_content = content
     verifier_name = verified_via
     if not verifier_name:
-        verifier_name = typer.prompt("What's your name?", default="human", show_default=True)
+        verifier_name = typer.prompt("What's your name?")
     applied = 0
 
     for result in report.results:
@@ -315,12 +315,8 @@ def review(
             arxiv_pm = result.sources["arxiv"]
 
             console.print("[yellow]Source conflict detected (arXiv vs official source).[/]")
-            console.print(
-                f"[dim]1) {meta.source}:[/] {meta.title} | {meta.year or 'N/A'} | {meta.venue or 'N/A'}"
-            )
-            console.print(
-                f"[dim]2) arXiv:[/] {arxiv_pm.title} | {arxiv_pm.year or 'N/A'} | {arxiv_pm.venue or 'N/A'}"
-            )
+            console.print(f"[dim]1) {meta.source}:[/] {meta.title} | {meta.year or 'N/A'} | {meta.venue or 'N/A'}")
+            console.print(f"[dim]2) arXiv:[/] {arxiv_pm.title} | {arxiv_pm.year or 'N/A'} | {arxiv_pm.venue or 'N/A'}")
 
             choice = typer.prompt("Choose source of truth (1/2/3=skip)", default="1", show_default=True)
             if choice.strip() == "2":
@@ -334,9 +330,7 @@ def review(
 
             result.mismatches, result.warnings = check_field_mismatches(entry, selected_meta)
 
-        console.print(
-            f"[dim]Source:[/] {selected_source} | [dim]Venue:[/] {selected_meta.venue or 'N/A'}"
-        )
+        console.print(f"[dim]Source:[/] {selected_source} | [dim]Venue:[/] {selected_meta.venue or 'N/A'}")
         if result.mismatches:
             console.print("[red]Mismatches:[/]")
             for mismatch in result.mismatches:
