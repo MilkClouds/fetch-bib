@@ -19,7 +19,7 @@ from .models import Author, FetchBundle, PaperMetadata
 from .rate_limiter import get_rate_limiter
 from .semantic_scholar import ResolvedIds, SemanticScholarClient
 from .utils import unicode_to_latex
-from .venue_aliases import get_dblp_search_venue
+from .venue_aliases import get_dblp_search_variants, get_dblp_search_venue
 
 # =============================================================================
 # Exceptions
@@ -248,12 +248,11 @@ class DBLPClient:
         def build_query(search_venue: str | None) -> str:
             query = title
             if search_venue:
-                resolved_venue = get_dblp_search_venue(search_venue)
-                query = f"{title} {resolved_venue}"
+                query = f"{title} {search_venue}"
             return query
 
         try:
-            for attempt_venue in (venue, None):
+            for attempt_venue in (*get_dblp_search_variants(venue), None):
                 query = build_query(attempt_venue)
                 logger.debug(f"DBLP title search: {query[:80]}...")
 

@@ -234,6 +234,20 @@ def _verify_entry_with_resolved(
         )
 
     metadata = bundle.selected
+    if (
+        arxiv_check
+        and metadata.source == "arxiv"
+        and not fetcher._is_arxiv_venue(resolved.venue)
+    ):
+        return VerificationResult(
+            entry_key=entry_key,
+            success=False,
+            message=f"Expected venue '{resolved.venue}', but only arXiv metadata was found",
+            metadata=metadata,
+            paper_id_used=paper_id,
+            paper_id_source=source,
+            sources=bundle.sources,
+        )
     if arxiv_check and bundle.arxiv_conflict:
         return VerificationResult(
             entry_key=entry_key,

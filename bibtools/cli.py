@@ -290,11 +290,13 @@ def review(
         if result.missing_date:
             console.print(f"[red]Missing date:[/] {result.entry_key} ({result.message})")
             continue
-        if not result.success and not result.mismatches and not result.warnings:
+        if not result.success and not result.mismatches and not result.warnings and not result.arxiv_conflict:
             console.print(f"[red]Error:[/] {result.entry_key} ({result.message})")
             continue
 
         if result.mismatches:
+            pass
+        elif result.arxiv_conflict:
             pass
         elif include_warnings and result.warnings:
             pass
@@ -310,23 +312,56 @@ def review(
         meta = result.metadata
         selected_source = meta.source or "unknown"
         selected_meta = meta
+        chose_source = False
 
         if result.arxiv_conflict and result.sources and "arxiv" in result.sources:
             arxiv_pm = result.sources["arxiv"]
 
             console.print("[yellow]Source conflict detected (arXiv vs official source).[/]")
-            console.print(f"[dim]1) {meta.source}:[/] {meta.title} | {meta.year or 'N/A'} | {meta.venue or 'N/A'}")
-            console.print(f"[dim]2) arXiv:[/] {arxiv_pm.title} | {arxiv_pm.year or 'N/A'} | {arxiv_pm.venue or 'N/A'}")
+            console.print(f"[dim]1) {meta.source}[/] vs [dim]2) arXiv[/]")
 
-            choice = typer.prompt("Choose source of truth (1/2/3=skip)", default="1", show_default=True)
-            if choice.strip() == "2":
+            def _norm_text(value: str | None) -> str:
+                return " ".join((value or "").split()).strip()
+
+            def _format_authors(pm, max_authors=8):
+                names = [f"{a.get('given','').strip()} {a.get('family','').strip()}".strip() for a in pm.authors]
+                names = [n for n in names if n]
+                if not names:
+                    return "N/A"
+                if len(names) > max_authors:
+                    return ", ".join(names[:max_authors]) + f" (+{len(names) - max_authors} more)"
+                return ", ".join(names)
+
+            meta_title = _norm_text(meta.title)
+            arxiv_title = _norm_text(arxiv_pm.title)
+            if meta_title != arxiv_title:
+                console.print(f"[dim]  title 1:[/] {meta_title or 'N/A'}")
+                console.print(f"[dim]  title 2:[/] {arxiv_title or 'N/A'}")
+
+            if (meta.year or "N/A") != (arxiv_pm.year or "N/A"):
+                console.print(f"[dim]   year 1:[/] {meta.year or 'N/A'}")
+                console.print(f"[dim]   year 2:[/] {arxiv_pm.year or 'N/A'}")
+
+            if _norm_text(meta.venue) != _norm_text(arxiv_pm.venue):
+                console.print(f"[dim]  venue 1:[/] {meta.venue or 'N/A'}")
+                console.print(f"[dim]  venue 2:[/] {arxiv_pm.venue or 'N/A'}")
+
+            if _format_authors(meta) != _format_authors(arxiv_pm):
+                console.print(f"[dim] authors 1:[/] {_format_authors(meta)}")
+                console.print(f"[dim] authors 2:[/] {_format_authors(arxiv_pm)}")
+
+            choice = typer.prompt("Choose source of truth (1/2/skip)", default="skip", show_default=True)
+            normalized = choice.strip().lower()
+            if normalized == "2":
                 selected_meta = arxiv_pm
                 selected_source = "arxiv"
-            elif choice.strip() == "3":
+                chose_source = True
+            elif normalized in {"skip", "s"}:
                 continue
             else:
                 selected_meta = meta
                 selected_source = meta.source or "unknown"
+                chose_source = True
 
             result.mismatches, result.warnings = check_field_mismatches(entry, selected_meta)
 
@@ -347,7 +382,8 @@ def review(
                 source_label = f"{warning.source}:"
                 console.print(f"    {source_label:>10} {' '.join(warning.fetched_value.split())}")
 
-        if not typer.confirm("Apply changes for this entry?", default=False):
+        apply_default = True if chose_source else False
+        if not typer.confirm("Apply changes for this entry?", default=apply_default):
             continue
 
         selected = []
