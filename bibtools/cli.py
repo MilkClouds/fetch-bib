@@ -277,6 +277,10 @@ def review(
             continue
 
         console.print(f"\n[bold cyan]{result.entry_key}[/]")
+        meta = result.metadata
+        console.print(
+            f"[dim]Source:[/] {meta.source or 'unknown'} | [dim]Year:[/] {meta.year or 'N/A'} | [dim]Venue:[/] {meta.venue or 'N/A'}"
+        )
         if result.mismatches:
             console.print("[red]Mismatches:[/]")
             for mismatch in result.mismatches:
