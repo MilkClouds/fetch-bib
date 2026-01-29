@@ -85,7 +85,6 @@ Examples:
 
 ```bibtex
 % paper_id: ARXIV:2106.15928, verified via bibtools v0.2.0 (2025.01.06)
-% paper_id_confidence: 0.93 (source: title)
 @inproceedings{example2024,
   title = {Example Paper},
   ...
@@ -100,7 +99,6 @@ States:
 - `% paper_id: ARXIV:xxx, verified via human (YYYY.MM.DD)` — manually verified
 - `% paper_id: SKIP, verified via human (YYYY.MM.DD)` — skip entry (tech reports, etc.)
 
-`resolve` may add a secondary `paper_id_confidence` comment line; it does not affect verification.
 
 ---
 

@@ -57,7 +57,7 @@ Else:
   eprint field → ARXIV:... (confidence 1.00)
   title search → best match (confidence = title similarity)
         ↓
-Write % paper_id comment (+ confidence line)
+Write % paper_id comment
 ```
 
 ### Verify
@@ -128,7 +128,7 @@ uv tool install git+https://github.com/MilkClouds/bibtools
 
 ```bash
 bibtools fetch 2106.09685                  # LoRA - auto-detects arXiv ID, gets ICLR 2022 from DBLP
-bibtools resolve main.bib                   # Add % paper_id comments (auto-match + confidence)
+bibtools resolve main.bib                   # Add % paper_id comments (auto-match + confidence in stdout)
 bibtools verify main.bib                    # Verify existing entries (no modifications)
 bibtools review main.bib                    # Interactive fix for mismatches
 bibtools search "Attention Is All You Need"  # Search (use with caution)

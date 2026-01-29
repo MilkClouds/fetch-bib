@@ -75,17 +75,11 @@ class BibResolver:
             report.add_result(result)
 
             if result.success and result.paper_id:
-                extra = []
-                if result.confidence is not None:
-                    extra.append(
-                        f"paper_id_confidence: {result.confidence:.2f} (source: {result.source or 'unknown'})"
-                    )
                 updated_content = insert_paper_id_comment(
                     updated_content,
                     entry_key,
                     result.paper_id,
                     include_verified=False,
-                    extra_comments=extra,
                 )
                 result.updated = True
 
