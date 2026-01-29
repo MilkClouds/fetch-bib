@@ -7,13 +7,14 @@ import typer
 from rich.console import Console
 
 from . import __version__
-from .constants import AUTO_FIND_ID, AUTO_FIND_NONE, AUTO_FIND_TITLE
 from .generator import BibtexGenerator
+from .parser import parse_bib_file
+from .resolver import BibResolver
 from .verifier import BibVerifier
 
 app = typer.Typer(
     name="bibtools",
-    help="Bibtex tools: verify, fetch, and search papers via Semantic Scholar API.",
+    help="Bibtex tools: verify, resolve, fetch, and search papers via Semantic Scholar API.",
     add_completion=False,
 )
 
@@ -55,22 +56,6 @@ def verify(
             readable=True,
         ),
     ],
-    output: Annotated[
-        Path | None,
-        typer.Option(
-            "--output",
-            "-o",
-            help="Output file path. If not specified, modifies the input file in-place.",
-        ),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run",
-            "-n",
-            help="Don't modify files, just show what would be done.",
-        ),
-    ] = False,
     skip_verified: Annotated[
         bool,
         typer.Option(
@@ -94,28 +79,6 @@ def verify(
             help="Semantic Scholar API key for higher rate limits.",
         ),
     ] = None,
-    auto_find: Annotated[
-        str,
-        typer.Option(
-            "--auto-find",
-            "-a",
-            help="Auto-find paper_id level: none (comment only), id (+ doi/eprint), title (+ title search).",
-        ),
-    ] = "id",
-    fix_errors: Annotated[
-        bool,
-        typer.Option(
-            "--fix-errors",
-            help="Auto-fix ERROR fields. Only allowed with --auto-find=none.",
-        ),
-    ] = False,
-    fix_warnings: Annotated[
-        bool,
-        typer.Option(
-            "--fix-warnings",
-            help="Auto-fix WARNING fields (venue, title case, etc.) to match API values. Only allowed with --auto-find=none.",
-        ),
-    ] = False,
     arxiv_check: Annotated[
         bool,
         typer.Option(
@@ -123,53 +86,15 @@ def verify(
             help="Cross-check with arXiv when arXiv ID exists. Detects wrong papers from DBLP/CrossRef.",
         ),
     ] = True,
-    mark_warnings_verified: Annotated[
-        bool,
-        typer.Option(
-            "--mark-warnings-verified",
-            help="Mark WARNING entries as verified (skip on future runs). Default: only PASS entries.",
-        ),
-    ] = False,
 ) -> None:
     """Verify bibtex entries using Semantic Scholar API.
 
-    Auto-find levels:
-      none  - Only use % paper_id: comments (safest)
-      id    - Also use doi/eprint fields (default)
-      title - Also search by title (risky, may find wrong paper)
-
     Examples:
-      bibtools verify main.bib                    # default: --auto-find=id
-      bibtools verify main.bib --auto-find=none   # strict: comment only
-      bibtools verify main.bib --auto-find=title  # aggressive: title search
-      bibtools verify main.bib --auto-find=none --fix-errors  # fix errors
+      bibtools verify main.bib
+      bibtools verify main.bib --reverify
     """
-    # Validate auto-find level
-    auto_find_level = auto_find.lower()
-    if auto_find_level not in (AUTO_FIND_NONE, AUTO_FIND_ID, AUTO_FIND_TITLE):
-        console.print(f"[bold red]Error:[/] Invalid --auto-find level: {auto_find}\nValid levels: none, id, title")
-        raise typer.Exit(1)
-
-    # Safety check: --fix-errors/--fix-warnings only allowed with --auto-find=none
-    if (fix_errors or fix_warnings) and auto_find_level != AUTO_FIND_NONE:
-        console.print(
-            "[bold red]Error:[/] --fix-errors/--fix-warnings only allowed with --auto-find=none\n"
-            "Use: bibtools verify --auto-find=none --fix-errors main.bib"
-        )
-        raise typer.Exit(1)
-
     # Display settings
     console.print(f"\n[bold blue]Verifying:[/] {bib_file}")
-    level_desc = {
-        AUTO_FIND_NONE: "[dim]none[/] (comment only)",
-        AUTO_FIND_ID: "[cyan]id[/] (comment + doi/eprint)",
-        AUTO_FIND_TITLE: "[yellow]title[/] (comment + doi/eprint + title search)",
-    }
-    console.print(f"[dim]Auto-find level:[/] {level_desc[auto_find_level]}")
-    if fix_errors:
-        console.print("[yellow]⚠ Fix errors: enabled[/]")
-    if fix_warnings:
-        console.print("[yellow]⚠ Fix warnings: enabled[/]")
 
     if not arxiv_check:
         console.print("[dim]arXiv cross-check:[/] disabled")
@@ -189,16 +114,12 @@ def verify(
         api_key=api_key,
         skip_verified=True,  # Always True when using max_age logic
         max_age_days=effective_max_age,
-        auto_find_level=auto_find_level,
-        fix_errors=fix_errors,
-        fix_warnings=fix_warnings,
         arxiv_check=arxiv_check,
-        mark_warnings_verified=mark_warnings_verified,
         console=console,
     )
 
     try:
-        report, updated_content = verifier.verify_file(bib_file)
+        report, _ = verifier.verify_file(bib_file)
     except Exception as e:
         console.print(f"[bold red]Error:[/] {e}")
         raise typer.Exit(1)
@@ -207,17 +128,198 @@ def verify(
     _print_actionable_results(report)
     _print_summary(report)
 
-    # Write output
-    if not dry_run and (report.verified > 0 or report.verified_with_warnings > 0 or report.fixed > 0):
+    # Exit with appropriate code based on overall status
+    # 0=PASS, 1=WARNING, 2=FAIL
+    raise typer.Exit(report.exit_code)
+
+
+@app.command()
+def resolve(
+    bib_file: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to the .bib file to resolve paper_id comments for.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output file path. If not specified, modifies the input file in-place.",
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            "-n",
+            help="Don't modify files, just show what would be done.",
+        ),
+    ] = False,
+    min_confidence: Annotated[
+        float,
+        typer.Option(
+            "--min-confidence",
+            help="Minimum title-match confidence for auto-resolution.",
+        ),
+    ] = 0.85,
+    api_key: Annotated[
+        str | None,
+        typer.Option(
+            "--api-key",
+            "-k",
+            envvar="SEMANTIC_SCHOLAR_API_KEY",
+            help="Semantic Scholar API key for higher rate limits.",
+        ),
+    ] = None,
+) -> None:
+    """Resolve paper_id comments for bibtex entries (no verification)."""
+    console.print(f"\n[bold blue]Resolving:[/] {bib_file}")
+    console.print(f"[dim]Min confidence:[/] {min_confidence:.2f}")
+
+    resolver = BibResolver(api_key=api_key, min_confidence=min_confidence, console=console)
+    try:
+        report, updated_content = resolver.resolve_file(bib_file)
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(1)
+    finally:
+        resolver.close()
+
+    _print_resolve_results(report)
+
+    if not dry_run and report.resolved > 0:
         output_path = output or bib_file
         output_path.write_text(updated_content, encoding="utf-8")
         console.print(f"\n[bold green]Updated:[/] {output_path}")
     elif dry_run:
         console.print("\n[yellow]Dry run - no files modified.[/]")
 
-    # Exit with appropriate code based on overall status
-    # 0=PASS, 1=WARNING, 2=FAIL
-    raise typer.Exit(report.exit_code)
+
+@app.command()
+def review(
+    bib_file: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to the .bib file to review and fix interactively.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output file path. If not specified, modifies the input file in-place.",
+        ),
+    ] = None,
+    api_key: Annotated[
+        str | None,
+        typer.Option(
+            "--api-key",
+            "-k",
+            envvar="SEMANTIC_SCHOLAR_API_KEY",
+            help="Semantic Scholar API key for higher rate limits.",
+        ),
+    ] = None,
+    arxiv_check: Annotated[
+        bool,
+        typer.Option(
+            "--arxiv-check/--no-arxiv-check",
+            help="Cross-check with arXiv when arXiv ID exists. Detects wrong papers from DBLP/CrossRef.",
+        ),
+    ] = True,
+    include_warnings: Annotated[
+        bool,
+        typer.Option(
+            "--include-warnings",
+            help="Include WARNING entries (format differences) in review.",
+        ),
+    ] = False,
+) -> None:
+    """Interactively review and fix mismatched bibtex entries."""
+    console.print(f"\n[bold blue]Reviewing:[/] {bib_file}")
+
+    verifier = BibVerifier(api_key=api_key, arxiv_check=arxiv_check, console=console)
+    try:
+        report, content = verifier.verify_file(bib_file)
+    except Exception as e:
+        console.print(f"[bold red]Error:[/] {e}")
+        raise typer.Exit(1)
+    finally:
+        verifier.close()
+
+    entries, _ = parse_bib_file(bib_file)
+    entry_map = {entry.get("ID", ""): entry for entry in entries}
+
+    updated_content = content
+    applied = 0
+
+    for result in report.results:
+        if result.mismatches:
+            pass
+        elif include_warnings and result.warnings:
+            pass
+        else:
+            continue
+
+        entry = entry_map.get(result.entry_key)
+        if not entry or not result.metadata:
+            console.print(f"[yellow]Skipping {result.entry_key} (missing metadata).[/]")
+            continue
+
+        console.print(f"\n[bold cyan]{result.entry_key}[/]")
+        if result.mismatches:
+            console.print("[red]Mismatches:[/]")
+            for mismatch in result.mismatches:
+                console.print(f"  [red]{mismatch.field_name}[/]")
+                console.print(f"    {'yours:':>10} {' '.join(mismatch.bibtex_value.split())}")
+                source_label = f"{mismatch.source}:"
+                console.print(f"    {source_label:>10} {' '.join(mismatch.fetched_value.split())}")
+
+        if include_warnings and result.warnings:
+            console.print("[yellow]Warnings:[/]")
+            for warning in result.warnings:
+                console.print(f"  [yellow]{warning.field_name}[/]")
+                console.print(f"    {'yours:':>10} {' '.join(warning.bibtex_value.split())}")
+                source_label = f"{warning.source}:"
+                console.print(f"    {source_label:>10} {' '.join(warning.fetched_value.split())}")
+
+        if not typer.confirm("Apply changes for this entry?", default=False):
+            continue
+
+        selected = []
+        for mismatch in result.mismatches:
+            if typer.confirm(f"  Replace {mismatch.field_name}?", default=True):
+                selected.append(mismatch)
+
+        if include_warnings:
+            for warning in result.warnings:
+                if typer.confirm(f"  Replace {warning.field_name} (warning)?", default=False):
+                    selected.append(warning)
+
+        if not selected:
+            console.print("[yellow]No fields selected; skipping.[/]")
+            continue
+
+        updated_content = verifier.apply_field_fixes(updated_content, entry, result.metadata, selected)
+        applied += 1
+
+    if applied == 0:
+        console.print("\n[dim]No changes applied.[/]")
+        return
+
+    output_path = output or bib_file
+    output_path.write_text(updated_content, encoding="utf-8")
+    console.print(f"\n[bold green]Updated:[/] {output_path}")
 
 
 @app.command()
@@ -332,14 +434,7 @@ def search(
 
 
 def _print_actionable_results(report) -> None:
-    """Print all actionable results (failures, warnings, fixes, auto-found).
-
-    Always shows:
-    - Failed entries with mismatch details
-    - Warnings (entries with no paper_id)
-    - Fixed entries with what was changed
-    - Auto-found paper_ids that will be written
-    """
+    """Print all actionable results (failures, warnings)."""
     # 1. Failures (field mismatches)
     failed_with_mismatches = [r for r in report.results if r.mismatches and not r.success and not r.fixed]
     if failed_with_mismatches:
@@ -390,26 +485,7 @@ def _print_actionable_results(report) -> None:
                 source_label = f"{warning.source}:"
                 console.print(f"    {source_label:>10} {' '.join(warning.fetched_value.split())}")
 
-    # 5. Fixed entries
-    fixed_entries = [r for r in report.results if r.fixed and r.mismatches]
-    if fixed_entries:
-        console.print("\n[bold yellow]🔧 Fixed Fields:[/]")
-        for result in fixed_entries:
-            console.print(f"\n  [cyan]{result.entry_key}[/]:")
-            for mismatch in result.mismatches:
-                console.print(f"    [yellow]{mismatch.field_name}[/] (from {mismatch.source})")
-                console.print(f"      [red]old:[/] {' '.join(mismatch.bibtex_value.split())}")
-                console.print(f"      [green]new:[/] {' '.join(mismatch.fetched_value.split())}")
-
-    # 6. Auto-found paper_ids
-    auto_found = [r for r in report.results if r.auto_found_paper_id and r.success]
-    if auto_found:
-        console.print("\n[bold magenta]📌 Auto-found paper_id (will be written to bib):[/]")
-        for result in auto_found:
-            console.print(
-                f"  [cyan]{result.entry_key}[/]: "
-                f"[magenta]{result.paper_id_used}[/] [dim](from {result.paper_id_source})[/]"
-            )
+    # No auto-fix or auto-annotation in verify.
 
 
 def _print_summary(report) -> None:
@@ -421,8 +497,6 @@ def _print_summary(report) -> None:
     console.print(f"  [green]Verified (pass): {report.verified}[/]")
     if report.verified_with_warnings > 0:
         console.print(f"  [yellow]Verified (warning): {report.verified_with_warnings}[/]")
-    if report.fixed > 0:
-        console.print(f"  [yellow]Fixed & verified: {report.fixed}[/]")
     console.print(f"  [dim]Already verified: {report.already_verified}[/]")
     if report.no_paper_id > 0:
         console.print(f"  [yellow]No paper_id: {report.no_paper_id}[/]")
@@ -439,6 +513,35 @@ def _print_summary(report) -> None:
         console.print("\n[bold yellow]Result: WARNING[/] (exit code 1)")
     else:
         console.print("\n[bold red]Result: FAIL[/] (exit code 2)")
+
+
+def _print_resolve_results(report) -> None:
+    """Print resolve report details."""
+    if report.resolved == 0 and report.failed == 0:
+        console.print("\n[dim]No entries to resolve.[/]")
+        return
+
+    resolved = [r for r in report.results if r.success and not r.already_has_paper_id]
+    if resolved:
+        console.print("\n[bold green]✓ Resolved:[/]")
+        for result in resolved:
+            conf = f"{result.confidence:.2f}" if result.confidence is not None else "n/a"
+            console.print(
+                f"  [cyan]{result.entry_key}[/]: {result.paper_id} "
+                f"[dim](source: {result.source}, confidence: {conf})[/]"
+            )
+
+    failed = [r for r in report.results if not r.success]
+    if failed:
+        console.print("\n[bold red]✗ Unresolved:[/]")
+        for result in failed:
+            console.print(f"  [cyan]{result.entry_key}[/]: {result.message}")
+
+    skipped = [r for r in report.results if r.already_has_paper_id]
+    if skipped:
+        console.print("\n[dim]Skipped (already has paper_id):[/]")
+        for result in skipped:
+            console.print(f"  [cyan]{result.entry_key}[/]: {result.paper_id}")
 
 
 if __name__ == "__main__":

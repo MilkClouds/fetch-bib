@@ -6,23 +6,16 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .constants import AUTO_FIND_ID, AUTO_FIND_NONE, AUTO_FIND_TITLE
 from .fetcher import MetadataFetcher
 from .models import FieldMismatch, PaperMetadata, VerificationReport, VerificationResult
 from .parser import (
-    extract_paper_id_from_entry,
-    generate_verification_comment,
+    extract_paper_id_from_comments,
     has_missing_date,
     is_entry_verified,
     parse_bib_file,
 )
 from .semantic_scholar import ResolvedIds
-from .utils import (
-    compare_authors,
-    compare_titles,
-    compare_venues,
-    title_similarity,
-)
+from .utils import compare_authors, compare_titles, compare_venues, title_similarity
 
 
 class BibVerifier:
@@ -33,11 +26,7 @@ class BibVerifier:
         api_key: str | None = None,
         skip_verified: bool = True,
         max_age_days: int | None = None,
-        auto_find_level: str = "id",
-        fix_errors: bool = False,
-        fix_warnings: bool = False,
         arxiv_check: bool = True,
-        mark_warnings_verified: bool = False,
         console: Console | None = None,
         *,
         fetcher: MetadataFetcher | None = None,
@@ -48,11 +37,7 @@ class BibVerifier:
             api_key: Optional Semantic Scholar API key.
             skip_verified: Skip entries that are already verified.
             max_age_days: Re-verify entries older than this many days. None = never re-verify.
-            auto_find_level: Level of auto-find: "none", "id", or "title".
-            fix_errors: Automatically fix ERROR fields.
-            fix_warnings: Automatically fix WARNING fields.
             arxiv_check: Cross-check with arXiv when arXiv ID exists.
-            mark_warnings_verified: Mark WARNING entries as verified (skip on future runs).
             console: Rich console for output.
             fetcher: Optional pre-configured MetadataFetcher (for sharing).
         """
@@ -61,15 +46,8 @@ class BibVerifier:
 
         self.skip_verified = skip_verified
         self.max_age_days = max_age_days
-        self.auto_find_level = auto_find_level
-        self.fix_errors = fix_errors
-        self.fix_warnings = fix_warnings
         self.arxiv_check = arxiv_check
-        self.mark_warnings_verified = mark_warnings_verified
         self.console = console or Console()
-
-        if auto_find_level not in (AUTO_FIND_NONE, AUTO_FIND_ID, AUTO_FIND_TITLE):
-            raise ValueError(f"Invalid auto_find_level: {auto_find_level}")
 
     def close(self) -> None:
         """Close owned fetcher."""
@@ -153,17 +131,9 @@ class BibVerifier:
                 already_verified=True,
             )
 
-        # Extract paper_id from entry (comment, doi/eprint depending on level)
-        paper_id, source = extract_paper_id_from_entry(entry, content, self.auto_find_level)
-        auto_found = source in ("doi", "eprint", "title") if source else False
-
-        # If no paper_id and title search is enabled, try title search
-        if not paper_id and self.auto_find_level == AUTO_FIND_TITLE:
-            title = entry.get("title", "")
-            if title:
-                paper_id, source = self._search_by_title_for_id(entry)
-                if paper_id:
-                    auto_found = True
+        # Extract paper_id from comment only
+        paper_id = extract_paper_id_from_comments(content, entry_key)
+        source = "comment" if paper_id else None
 
         # No paper_id = warning (not failure)
         if not paper_id:
@@ -177,7 +147,7 @@ class BibVerifier:
         # Use batch resolve (works for single ID too) then verify
         resolved_map = self._resolve_batch([paper_id])
         resolved = resolved_map.get(paper_id)
-        return self._verify_entry_with_resolved(entry, paper_id, source or "", auto_found, resolved)
+        return self._verify_entry_with_resolved(entry, paper_id, source or "", False, resolved)
 
     def _check_field_mismatches(
         self, entry: dict, metadata: PaperMetadata
@@ -343,46 +313,6 @@ class BibVerifier:
 
         return None
 
-    def _search_by_title_for_id(self, entry: dict) -> tuple[str | None, str | None]:
-        """Search for paper by title and return paper_id if found with high confidence.
-
-        Args:
-            entry: Bibtex entry dictionary.
-
-        Returns:
-            Tuple of (paper_id, source). source is "title" if found.
-        """
-        title = entry.get("title", "")
-        if not title:
-            return None, None
-
-        from .utils import strip_latex_braces
-
-        search_title = strip_latex_braces(title)
-
-        try:
-            resolved_list = self._fetcher.s2_client.search_by_title(search_title, limit=3)
-        except ConnectionError:
-            return None, None
-
-        if not resolved_list:
-            return None, None
-
-        # Find best match by title similarity
-        best_match = None
-        best_score = 0.0
-        for resolved in resolved_list:
-            if resolved.title:
-                score = title_similarity(title, resolved.title)
-                if score > best_score:
-                    best_score = score
-                    best_match = resolved
-
-        if best_score >= 0.85 and best_match:
-            return best_match.paper_id, "title"
-
-        return None, None
-
     def verify_file(self, file_path: Path, show_progress: bool = True) -> tuple[VerificationReport, str]:
         """Verify all entries in a bibtex file.
 
@@ -429,17 +359,10 @@ class BibVerifier:
                 )
                 continue
 
-            # Extract paper_id
-            paper_id, source = extract_paper_id_from_entry(entry, content, self.auto_find_level)
-            auto_found = source in ("doi", "eprint", "title") if source else False
-
-            # If no paper_id and title search is enabled, try title search
-            if not paper_id and self.auto_find_level == AUTO_FIND_TITLE:
-                title = entry.get("title", "")
-                if title:
-                    paper_id, source = self._search_by_title_for_id(entry)
-                    if paper_id:
-                        auto_found = True
+            # Extract paper_id from comments only
+            paper_id = extract_paper_id_from_comments(content, entry_key)
+            source = "comment" if paper_id else None
+            auto_found = False
 
             if not paper_id:
                 report.add_result(
@@ -474,20 +397,6 @@ class BibVerifier:
             resolved = resolved_map.get(paper_id)
             result = self._verify_entry_with_resolved(entry, paper_id, source, auto_found, resolved)
             report.add_result(result)
-
-            # Add paper_id comment if verified (PASS or WARNING, not FAIL)
-            if result.success and result.needs_update and result.metadata and result.paper_id_used:
-                if result.fixed and result.mismatches:
-                    updated_content = self._apply_field_fixes(
-                        updated_content, entry, result.metadata, result.mismatches
-                    )
-                # PASS: always include "verified via" (skip on future runs)
-                # WARNING: include "verified via" only if mark_warnings_verified is set
-                is_pass = not result.warnings
-                include_verified = is_pass or self.mark_warnings_verified
-                updated_content = self._add_verification_comment(
-                    updated_content, entry, result.paper_id_used, include_verified=include_verified
-                )
 
         return report, updated_content
 
@@ -579,43 +488,23 @@ class BibVerifier:
         entry_key = entry.get("ID", "unknown")
 
         if mismatches:
-            if self.fix_errors:
-                return VerificationResult(
-                    entry_key=entry_key,
-                    success=True,
-                    message="Fixed and verified",
-                    metadata=metadata,
-                    paper_id_used=paper_id,
-                    auto_found_paper_id=auto_found,
-                    paper_id_source=source,
-                    mismatches=mismatches,
-                    warnings=warnings,
-                    fixed=True,
-                    needs_update=True,
-                )
-            else:
-                mismatch_fields = ", ".join(m.field_name for m in mismatches)
-                return VerificationResult(
-                    entry_key=entry_key,
-                    success=False,
-                    message=f"Field mismatch: {mismatch_fields}",
-                    metadata=metadata,
-                    paper_id_used=paper_id,
-                    auto_found_paper_id=auto_found,
-                    paper_id_source=source,
-                    mismatches=mismatches,
-                    warnings=warnings,
-                )
-
-        # Handle warnings - fix them if fix_warnings is enabled
-        fixed_warnings = self.fix_warnings and bool(warnings)
+            mismatch_fields = ", ".join(m.field_name for m in mismatches)
+            return VerificationResult(
+                entry_key=entry_key,
+                success=False,
+                message=f"Field mismatch: {mismatch_fields}",
+                metadata=metadata,
+                paper_id_used=paper_id,
+                auto_found_paper_id=auto_found,
+                paper_id_source=source,
+                mismatches=mismatches,
+                warnings=warnings,
+            )
 
         message = "Verified"
-        if warnings and not self.fix_warnings:
+        if warnings:
             warning_fields = ", ".join(w.field_name for w in warnings)
             message = f"Verified (warning: {warning_fields} format differs)"
-        elif fixed_warnings:
-            message = "Fixed warnings and verified"
 
         return VerificationResult(
             entry_key=entry_key,
@@ -625,69 +514,13 @@ class BibVerifier:
             paper_id_used=paper_id,
             auto_found_paper_id=auto_found,
             paper_id_source=source,
-            warnings=warnings if not self.fix_warnings else [],
-            mismatches=warnings if self.fix_warnings else [],
-            fixed=fixed_warnings,
-            needs_update=True,
+            warnings=warnings,
+            mismatches=[],
+            fixed=False,
+            needs_update=False,
         )
 
-    def _add_verification_comment(
-        self,
-        content: str,
-        entry: dict,
-        paper_id: str,
-        include_verified: bool = True,
-    ) -> str:
-        """Add a verification comment before an entry.
-
-        Args:
-            content: File content.
-            entry: Bibtex entry dictionary.
-            paper_id: Paper ID used for lookup. Required.
-            include_verified: If True, include "verified via bibtools (date)" suffix.
-
-        Returns:
-            Updated content with verification comment.
-        """
-        entry_key = entry.get("ID", "")
-        # Find the entry in the content - capture leading whitespace, comments, then the entry
-        # Pattern: whitespace, optional comments, then the entry
-        entry_pattern = re.compile(
-            rf"(\s*)((?:%[^\n]*\n)*)(@\w+\{{\s*{re.escape(entry_key)}\s*,)",
-            re.MULTILINE,
-        )
-        match = entry_pattern.search(content)
-
-        if not match:
-            return content
-
-        leading_whitespace = match.group(1)
-        existing_comments = match.group(2).strip()
-        entry_start = match.group(3)
-
-        # Determine the prefix (what comes before this match)
-        prefix = content[: match.start()]
-
-        # Generate verification comment with paper_id embedded
-        comment = generate_verification_comment(paper_id, include_verified=include_verified)
-
-        # Remove existing paper_id comment if present (any format)
-        # Matches: "% paper_id: xxx" or "% paper_id: xxx, verified via ..."
-        existing_paper_id_pattern = re.compile(
-            r"%\s*paper_id:\s*\S+[^\n]*\n?",
-            re.IGNORECASE,
-        )
-
-        cleaned_comments = existing_paper_id_pattern.sub("", existing_comments)
-
-        if cleaned_comments.strip():
-            new_block = f"{leading_whitespace}{cleaned_comments.strip()}\n{comment}\n{entry_start}"
-        else:
-            new_block = f"{leading_whitespace}{comment}\n{entry_start}"
-
-        return prefix + new_block + content[match.end() :]
-
-    def _apply_field_fixes(
+    def apply_field_fixes(
         self,
         content: str,
         entry: dict,

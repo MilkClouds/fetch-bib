@@ -215,3 +215,39 @@ class VerificationReport:
         - 2: FAIL (some entries failed verification)
         """
         return int(self.overall_status)
+
+
+@dataclass
+class ResolveResult:
+    """Result of resolving a paper_id for a bibtex entry."""
+
+    entry_key: str
+    success: bool
+    message: str
+    paper_id: str | None = None
+    source: str | None = None  # "comment", "doi", "eprint", "title"
+    confidence: float | None = None
+    already_has_paper_id: bool = False
+    updated: bool = False  # Whether the bib file would be updated
+
+
+@dataclass
+class ResolveReport:
+    """Overall resolve report."""
+
+    total_entries: int = 0
+    resolved: int = 0
+    skipped: int = 0  # Already has paper_id
+    failed: int = 0
+    results: list[ResolveResult] = field(default_factory=list)
+
+    def add_result(self, result: ResolveResult) -> None:
+        """Add a resolve result to the report."""
+        self.results.append(result)
+        self.total_entries += 1
+        if result.already_has_paper_id:
+            self.skipped += 1
+        elif result.success:
+            self.resolved += 1
+        else:
+            self.failed += 1

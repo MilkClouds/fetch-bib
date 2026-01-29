@@ -6,7 +6,7 @@ from typer.testing import CliRunner
 
 from bibtools import __version__
 from bibtools.cli import app
-from bibtools.models import VerificationReport, VerificationResult
+from bibtools.models import ResolveReport, ResolveResult, VerificationReport, VerificationResult
 
 runner = CliRunner()
 
@@ -35,71 +35,6 @@ class TestVerifyCommand:
         result = runner.invoke(app, ["verify", "nonexistent.bib"])
         assert result.exit_code != 0
 
-    def test_verify_invalid_auto_find(self, tmp_path):
-        """Test verify with invalid --auto-find option."""
-        bib_file = tmp_path / "test.bib"
-        bib_file.write_text("@article{test, title = {Test}}")
-
-        result = runner.invoke(app, ["verify", str(bib_file), "--auto-find=invalid"])
-        assert result.exit_code == 1
-        assert "Invalid --auto-find level" in result.output
-
-    def test_verify_fix_errors_without_none(self, tmp_path):
-        """Test that --fix-errors requires --auto-find=none."""
-        bib_file = tmp_path / "test.bib"
-        bib_file.write_text("@article{test, title = {Test}}")
-
-        result = runner.invoke(app, ["verify", str(bib_file), "--fix-errors"])
-        assert result.exit_code == 1
-        assert "--fix-errors/--fix-warnings only allowed with --auto-find=none" in result.output
-
-    def test_verify_fix_warnings_without_none(self, tmp_path):
-        """Test that --fix-warnings requires --auto-find=none."""
-        bib_file = tmp_path / "test.bib"
-        bib_file.write_text("@article{test, title = {Test}}")
-
-        result = runner.invoke(app, ["verify", str(bib_file), "--fix-warnings"])
-        assert result.exit_code == 1
-        assert "--fix-errors/--fix-warnings only allowed with --auto-find=none" in result.output
-
-    @patch("bibtools.cli.BibVerifier")
-    def test_verify_dry_run(self, mock_verifier_class, tmp_path):
-        """Test verify with --dry-run option."""
-        bib_file = tmp_path / "test.bib"
-        bib_file.write_text("@article{test, title = {Test}}")
-
-        # Setup mock
-        mock_verifier = MagicMock()
-        mock_verifier_class.return_value = mock_verifier
-        report = VerificationReport()
-        mock_verifier.verify_file.return_value = (report, "@article{test}")
-
-        result = runner.invoke(app, ["verify", str(bib_file), "--dry-run"])
-        assert result.exit_code == 0
-        assert "Dry run" in result.output
-
-    @patch("bibtools.cli.BibVerifier")
-    def test_verify_already_verified(self, mock_verifier_class, tmp_path):
-        """Test verify with already verified entries."""
-        bib_file = tmp_path / "test.bib"
-        bib_file.write_text("@article{test, title = {Test}}")
-
-        mock_verifier = MagicMock()
-        mock_verifier_class.return_value = mock_verifier
-        report = VerificationReport()
-        result_entry = VerificationResult(
-            entry_key="test",
-            success=True,
-            message="Already verified",
-            already_verified=True,
-        )
-        report.add_result(result_entry)
-        mock_verifier.verify_file.return_value = (report, "@article{test}")
-
-        result = runner.invoke(app, ["verify", str(bib_file), "--dry-run"])
-        assert result.exit_code == 0
-        assert "Already verified: 1" in result.output
-
     @patch("bibtools.cli.BibVerifier")
     def test_verify_max_age_option(self, mock_verifier_class, tmp_path):
         """Test verify with --max-age option."""
@@ -111,7 +46,7 @@ class TestVerifyCommand:
         report = VerificationReport()
         mock_verifier.verify_file.return_value = (report, "@article{test}")
 
-        result = runner.invoke(app, ["verify", str(bib_file), "--max-age=90", "--dry-run"])
+        result = runner.invoke(app, ["verify", str(bib_file), "--max-age=90"])
         assert result.exit_code == 0
         assert "older than 90 days" in result.output
         # Verify BibVerifier was called with max_age_days=90
@@ -130,13 +65,62 @@ class TestVerifyCommand:
         report = VerificationReport()
         mock_verifier.verify_file.return_value = (report, "@article{test}")
 
-        result = runner.invoke(app, ["verify", str(bib_file), "--reverify", "--dry-run"])
+        result = runner.invoke(app, ["verify", str(bib_file), "--reverify"])
         assert result.exit_code == 0
         assert "--reverify or --max-age=0" in result.output
         # Verify BibVerifier was called with max_age_days=0
         mock_verifier_class.assert_called_once()
         call_kwargs = mock_verifier_class.call_args[1]
         assert call_kwargs["max_age_days"] == 0
+
+
+class TestResolveCommand:
+    """Tests for resolve command."""
+
+    @patch("bibtools.cli.BibResolver")
+    def test_resolve_dry_run(self, mock_resolver_class, tmp_path):
+        """Test resolve with --dry-run option."""
+        bib_file = tmp_path / "test.bib"
+        bib_file.write_text("@article{test, title = {Test}}")
+
+        mock_resolver = MagicMock()
+        mock_resolver_class.return_value = mock_resolver
+        report = ResolveReport()
+        report.add_result(
+            ResolveResult(
+                entry_key="test",
+                success=True,
+                message="Resolved",
+                paper_id="ARXIV:2106.15928",
+                source="title",
+                confidence=0.95,
+            )
+        )
+        mock_resolver.resolve_file.return_value = (report, "@article{test}")
+
+        result = runner.invoke(app, ["resolve", str(bib_file), "--dry-run"])
+        assert result.exit_code == 0
+        assert "Resolved" in result.output
+        assert "Dry run" in result.output
+
+
+class TestReviewCommand:
+    """Tests for review command."""
+
+    @patch("bibtools.cli.BibVerifier")
+    def test_review_no_changes(self, mock_verifier_class, tmp_path):
+        """Test review when no changes are applied."""
+        bib_file = tmp_path / "test.bib"
+        bib_file.write_text("@article{test, title = {Test}}")
+
+        mock_verifier = MagicMock()
+        mock_verifier_class.return_value = mock_verifier
+        report = VerificationReport()
+        mock_verifier.verify_file.return_value = (report, "@article{test}")
+
+        result = runner.invoke(app, ["review", str(bib_file)])
+        assert result.exit_code == 0
+        assert "No changes applied" in result.output
 
 
 class TestFetchCommand:

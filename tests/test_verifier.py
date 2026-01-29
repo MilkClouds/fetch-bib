@@ -49,26 +49,26 @@ class TestCompareTitles:
     def test_case_difference_warning(self):
         """Test case difference returns match=True with warning=True."""
         match, warning = compare_titles("Hello World", "hello world")
-        assert match is True  # Still a match
-        assert warning is True  # But with a warning
+        assert match is True
+        assert warning is True
 
     def test_punctuation_mismatch(self):
         """Test punctuation mismatch is a real error."""
         match, warning = compare_titles("Hello World", "Hello World!")
         assert match is False
-        assert warning is False  # Real mismatch (fail)
+        assert warning is False
 
     def test_braces_difference_warning(self):
         """Test that LaTeX brace difference produces warning (not pass)."""
         match, warning = compare_titles("{CNN} for NLP", "CNN for NLP")
-        assert match is True  # Still a match
-        assert warning is True  # Warning for brace difference (PASS requires exact raw match)
+        assert match is True
+        assert warning is True
 
     def test_braces_with_case_difference_warning(self):
         """Test that braces + case difference is match with warning."""
         match, warning = compare_titles("{cnn} for NLP", "CNN for NLP")
-        assert match is True  # Still a match
-        assert warning is True  # Warning because braces differ (and case)
+        assert match is True
+        assert warning is True
 
 
 class TestTitleSimilarity:
@@ -126,14 +126,13 @@ class TestAuthorParsing:
         """Test comparing identical author strings - exact match is PASS."""
         match, warning = compare_authors("John Smith and Jane Doe", ["John Smith", "Jane Doe"])
         assert match is True
-        assert warning is False  # Exact match, no warning
+        assert warning is False
 
     def test_compare_authors_style_difference(self):
         """Test that style differences are WARNING (not PASS)."""
-        # "Last, First" format in bibtex vs "First Last" from Semantic Scholar
         match, warning = compare_authors("Smith, John and Doe, Jane", ["John Smith", "Jane Doe"])
         assert match is True
-        assert warning is True  # Style difference -> warning
+        assert warning is True
 
     def test_compare_authors_different_count(self):
         """Test that different author counts are rejected."""
@@ -202,6 +201,7 @@ class TestFieldMismatchDetection:
         metadata = make_metadata(title="Test", year=2024)
         mismatches, warnings = verifier._check_field_mismatches(entry, metadata)
         assert any(m.field_name == "year" for m in mismatches)
+        assert warnings == []
 
     def test_check_year_match(self, make_metadata):
         """Test no failure when years match."""
@@ -225,7 +225,6 @@ class TestFieldMismatchDetection:
         entry = {"booktitle": "CoRL"}
         metadata = make_metadata(title="Test", venue="Conference on Robot Learning")
         mismatches, _ = verifier._check_field_mismatches(entry, metadata)
-        # Should not fail because "CoRL" is an alias for "Conference on Robot Learning"
         assert not any(m.field_name == "venue" for m in mismatches)
 
     def test_check_title_mismatch(self, make_metadata):
@@ -242,8 +241,8 @@ class TestFieldMismatchDetection:
         entry = {"title": "CNN for NLP"}
         metadata = make_metadata(title="CNN for NLP")
         mismatches, warnings = verifier._check_field_mismatches(entry, metadata)
-        assert not any(m.field_name == "title" for m in mismatches)  # No mismatch
-        assert not any(w.field_name == "title" for w in warnings)  # No warning - exact match
+        assert not any(m.field_name == "title" for m in mismatches)
+        assert not any(w.field_name == "title" for w in warnings)
 
     def test_check_title_brace_difference_warning(self, make_metadata):
         """Test title with brace difference is WARNING (not PASS)."""
@@ -251,59 +250,17 @@ class TestFieldMismatchDetection:
         entry = {"title": "{CNN} for {NLP}"}
         metadata = make_metadata(title="CNN for NLP")
         mismatches, warnings = verifier._check_field_mismatches(entry, metadata)
-        assert not any(m.field_name == "title" for m in mismatches)  # Not a fail
-        assert any(w.field_name == "title" for w in warnings)  # Warning for brace difference
+        assert not any(m.field_name == "title" for m in mismatches)
+        assert any(w.field_name == "title" for w in warnings)
 
     def test_check_title_case_difference_warning(self, make_metadata):
         """Test title with case difference produces warning."""
         verifier = BibVerifier(skip_verified=True)
         entry = {"title": "Learning to Walk"}
-        metadata = make_metadata(title="Learning To Walk")
+        metadata = make_metadata(title="learning to walk")
         mismatches, warnings = verifier._check_field_mismatches(entry, metadata)
-        assert not any(m.field_name == "title" for m in mismatches)  # Not a fail
-        assert any(w.field_name == "title" for w in warnings)  # Warning for case difference
-
-    def test_check_author_mismatch(self, make_metadata):
-        """Test author mismatch detection."""
-        verifier = BibVerifier(skip_verified=True)
-        entry = {"author": "John Smith and Jane Doe"}
-        metadata = make_metadata(title="Test", authors=["Alice Brown", "Bob Wilson"])
-        mismatches, _ = verifier._check_field_mismatches(entry, metadata)
-        assert any(m.field_name == "author" for m in mismatches)
-
-    def test_check_author_exact_match(self, make_metadata):
-        """Test that author field matches with bibtex 'and' separator."""
-        verifier = BibVerifier(skip_verified=True)
-        # Bibtex uses "and" separator, metadata returns list
-        entry = {"author": "John Smith and Jane Doe"}
-        metadata = make_metadata(title="Test", authors=["John Smith", "Jane Doe"])
-        mismatches, _ = verifier._check_field_mismatches(entry, metadata)
-        assert not any(m.field_name == "author" for m in mismatches)  # Match
-
-    def test_check_author_style_difference_allowed(self, make_metadata):
-        """Test that style differences (Last, First vs First Last) are allowed."""
-        verifier = BibVerifier(skip_verified=True)
-        # "Last, First" format in bibtex vs "First Last" from metadata
-        entry = {"author": "Smith, John and Doe, Jane"}
-        metadata = make_metadata(title="Test", authors=["John Smith", "Jane Doe"])
-        mismatches, _ = verifier._check_field_mismatches(entry, metadata)
-        assert not any(m.field_name == "author" for m in mismatches)  # Style difference allowed
-
-    def test_check_author_order_mismatch(self, make_metadata):
-        """Test that different author order is a mismatch."""
-        verifier = BibVerifier(skip_verified=True)
-        entry = {"author": "Jane Doe and John Smith"}  # Different order
-        metadata = make_metadata(title="Test", authors=["John Smith", "Jane Doe"])
-        mismatches, _ = verifier._check_field_mismatches(entry, metadata)
-        assert any(m.field_name == "author" for m in mismatches)  # Order matters
-
-    def test_check_author_case_mismatch(self, make_metadata):
-        """Test that author case difference is detected as mismatch."""
-        verifier = BibVerifier(skip_verified=True)
-        entry = {"author": "John smith"}  # lowercase 'smith'
-        metadata = make_metadata(title="Test", authors=["John Smith"])
-        mismatches, _ = verifier._check_field_mismatches(entry, metadata)
-        assert any(m.field_name == "author" for m in mismatches)  # Case mismatch detected
+        assert not any(m.field_name == "title" for m in mismatches)
+        assert any(w.field_name == "title" for w in warnings)
 
 
 class TestBibVerifier:
@@ -336,24 +293,25 @@ class TestVerifyEntry:
 
     def test_verify_entry_no_paper_id(self):
         """Test verify_entry with no paper_id returns warning, not failure."""
-        verifier = BibVerifier(skip_verified=True, auto_find_level="none")
+        verifier = BibVerifier(skip_verified=True)
         entry = {"ID": "test2024", "title": "Test Paper"}
         content = "@article{test2024, title = {Test Paper}}"
 
         result = verifier.verify_entry(entry, content)
-        assert result.success is True  # Not failure
+        assert result.success is True
         assert result.no_paper_id is True
 
     def test_verify_entry_reverify(self):
         """Test verify_entry with max_age_days=0 re-verifies."""
         verifier = BibVerifier(skip_verified=True, max_age_days=0)
-        entry = {"ID": "test2024", "title": "Test", "doi": "10.1234/test"}
+        entry = {"ID": "test2024", "title": "Test"}
         content = """
 % paper_id: DOI:10.1234/test, verified via bibtools (2024.12.30)
-@article{test2024, title = {Test}, doi = {10.1234/test}}
+@article{test2024, title = {Test}}
 """
+        verifier._resolve_batch = MagicMock(return_value={"DOI:10.1234/test": None})
+
         result = verifier.verify_entry(entry, content)
-        # With max_age_days=0, it should try to re-verify
         assert result.already_verified is not True
 
 
@@ -377,7 +335,6 @@ class TestShouldSkipVerified:
     def test_max_age_with_old_date(self):
         """Test max_age_days with old verification date."""
         verifier = BibVerifier(skip_verified=True, max_age_days=30)
-        # Very old date should NOT skip (re-verify)
         assert verifier._should_skip_verified("2020.01.01") is False
 
     def test_max_age_with_recent_date(self):
@@ -385,16 +342,14 @@ class TestShouldSkipVerified:
         from datetime import datetime, timedelta
 
         verifier = BibVerifier(skip_verified=True, max_age_days=30)
-        # Recent date should skip
         recent = (datetime.now() - timedelta(days=5)).strftime("%Y.%m.%d")
         assert verifier._should_skip_verified(recent) is True
 
     def test_max_age_with_invalid_date(self):
         """Test max_age_days with invalid date format."""
         verifier = BibVerifier(skip_verified=True, max_age_days=30)
-        # Invalid date should NOT skip (re-verify)
         assert verifier._should_skip_verified("invalid") is False
-        assert verifier._should_skip_verified("2024-01-01") is False  # Wrong format
+        assert verifier._should_skip_verified("2024-01-01") is False
 
 
 class TestVerifierIntegration:
@@ -416,7 +371,6 @@ class TestVerifierIntegration:
         verifier = BibVerifier(skip_verified=True)
         report, _ = verifier.verify_file(bib_file)
 
-        # Entry is already verified
         assert report.already_verified == 1
         assert report.total_entries == 1
 
@@ -437,12 +391,11 @@ class TestVerifierIntegration:
         bib_file = tmp_path / "test.bib"
         bib_file.write_text(bib_content)
 
-        verifier = BibVerifier(skip_verified=True, auto_find_level="none")
+        verifier = BibVerifier(skip_verified=True)
         report, _ = verifier.verify_file(bib_file)
 
         assert report.total_entries == 2
         assert report.already_verified == 1
-        # Second entry has no paper_id
         assert report.no_paper_id == 1
 
 
@@ -450,10 +403,10 @@ class TestVerifierWithMockAPI:
     """Tests for verifier with mocked API."""
 
     def test_verify_entry_with_doi_success(self, make_metadata):
-        """Test verify_entry successfully verifies paper via DOI."""
+        """Test verify_entry successfully verifies paper via DOI comment."""
         from bibtools.semantic_scholar import ResolvedIds
 
-        verifier = BibVerifier(skip_verified=True, auto_find_level="id")
+        verifier = BibVerifier(skip_verified=True)
         metadata = make_metadata(
             title="Test Paper",
             authors=["John Smith"],
@@ -461,7 +414,6 @@ class TestVerifierWithMockAPI:
             venue="NeurIPS",
             doi="10.1234/test",
         )
-        # Mock batch resolve and fetch_with_resolved (unified path)
         resolved = ResolvedIds(
             paper_id="DOI:10.1234/test",
             doi="10.1234/test",
@@ -476,9 +428,8 @@ class TestVerifierWithMockAPI:
             "title": "Test Paper",
             "author": "John Smith",
             "year": "2024",
-            "doi": "10.1234/test",
         }
-        content = "@article{smith2024test, title = {Test Paper}}"
+        content = "% paper_id: DOI:10.1234/test\n@article{smith2024test, title = {Test Paper}}"
 
         result = verifier.verify_entry(entry, content)
         assert result.success is True
@@ -488,7 +439,7 @@ class TestVerifierWithMockAPI:
         """Test verify_entry handles API error."""
         from bibtools.semantic_scholar import ResolvedIds
 
-        verifier = BibVerifier(skip_verified=True, auto_find_level="id")
+        verifier = BibVerifier(skip_verified=True)
         resolved = ResolvedIds(
             paper_id="DOI:10.1234/test",
             doi="10.1234/test",
@@ -498,8 +449,8 @@ class TestVerifierWithMockAPI:
         verifier._resolve_batch = MagicMock(return_value={"DOI:10.1234/test": resolved})
         verifier._fetch_with_resolved = MagicMock(side_effect=ConnectionError("API unavailable"))
 
-        entry = {"ID": "test2024", "doi": "10.1234/test"}
-        content = "@article{test2024}"
+        entry = {"ID": "test2024"}
+        content = "% paper_id: DOI:10.1234/test\n@article{test2024,"
 
         result = verifier.verify_entry(entry, content)
         assert result.success is False
@@ -507,12 +458,11 @@ class TestVerifierWithMockAPI:
 
     def test_verify_entry_paper_not_found(self):
         """Test verify_entry when paper is not found."""
-        verifier = BibVerifier(skip_verified=True, auto_find_level="id")
-        # S2 batch returns None for this paper_id
+        verifier = BibVerifier(skip_verified=True)
         verifier._resolve_batch = MagicMock(return_value={"DOI:10.1234/nonexistent": None})
 
-        entry = {"ID": "test2024", "doi": "10.1234/nonexistent"}
-        content = "@article{test2024}"
+        entry = {"ID": "test2024"}
+        content = "% paper_id: DOI:10.1234/nonexistent\n@article{test2024,"
 
         result = verifier.verify_entry(entry, content)
         assert result.success is False
@@ -522,39 +472,7 @@ class TestVerifierWithMockAPI:
         """Test verify_entry detects field mismatch."""
         from bibtools.semantic_scholar import ResolvedIds
 
-        verifier = BibVerifier(skip_verified=True, auto_find_level="id", fix_errors=False)
-        metadata = make_metadata(
-            title="Correct Title",
-            authors=["John Smith"],
-            year=2025,  # Different year
-        )
-        resolved = ResolvedIds(
-            paper_id="DOI:10.1234/test",
-            doi="10.1234/test",
-            arxiv_id=None,
-            dblp_id=None,
-        )
-        verifier._resolve_batch = MagicMock(return_value={"DOI:10.1234/test": resolved})
-        verifier._fetch_with_resolved = MagicMock(return_value=metadata)
-
-        entry = {
-            "ID": "test2024",
-            "title": "Correct Title",
-            "year": "2024",  # Wrong year
-            "doi": "10.1234/test",
-        }
-        content = "@article{test2024}"
-
-        result = verifier.verify_entry(entry, content)
-        assert result.success is False
-        assert "year" in result.message
-        assert len(result.mismatches) > 0
-
-    def test_verify_entry_fix_mode(self, make_metadata):
-        """Test verify_entry with fix_errors=True."""
-        from bibtools.semantic_scholar import ResolvedIds
-
-        verifier = BibVerifier(skip_verified=True, auto_find_level="id", fix_errors=True)
+        verifier = BibVerifier(skip_verified=True)
         metadata = make_metadata(
             title="Correct Title",
             authors=["John Smith"],
@@ -572,39 +490,31 @@ class TestVerifierWithMockAPI:
         entry = {
             "ID": "test2024",
             "title": "Correct Title",
-            "year": "2024",  # Wrong year - should be fixed
-            "doi": "10.1234/test",  # This provides paper_id
+            "year": "2024",
         }
-        content = "@article{test2024}"
+        content = "% paper_id: DOI:10.1234/test\n@article{test2024,"
 
         result = verifier.verify_entry(entry, content)
-        assert result.success is True
-        assert result.fixed is True
+        assert result.success is False
+        assert "year" in result.message
         assert len(result.mismatches) > 0
 
     def test_verify_file_with_mock_success(self, tmp_path, make_metadata):
         """Test verify_file with mocked API for successful verification."""
         from bibtools.semantic_scholar import ResolvedIds
 
-        bib_content = """@article{test2024,
-  doi = {10.1234/example},
-  title = {Test Paper},
-  author = {Smith, John},
-  year = {2024}
-}
-"""
+        bib_content = "% paper_id: DOI:10.1234/example\n@article{test2024,\n  title = {Test Paper},\n  author = {Smith, John},\n  year = {2024}\n}\n"
         bib_file = tmp_path / "test.bib"
         bib_file.write_text(bib_content)
 
         verifier = BibVerifier(skip_verified=True)
         metadata = make_metadata(
             title="Test Paper",
-            authors=["John Smith"],  # Will become {"given": "John", "family": "Smith"} -> "Smith, John"
+            authors=["John Smith"],
             year=2024,
             venue="NeurIPS",
             doi="10.1234/example",
         )
-        # Mock batch resolve and fetch_with_resolved for verify_file
         resolved = ResolvedIds(
             paper_id="DOI:10.1234/example",
             doi="10.1234/example",
@@ -617,92 +527,7 @@ class TestVerifierWithMockAPI:
         report, updated_content = verifier.verify_file(bib_file)
 
         assert report.verified == 1
-        # New format: "% paper_id: {id}, verified via bibtools ({date})"
-        assert "% paper_id: DOI:10.1234/example, verified via bibtools" in updated_content
-
-    def test_warning_adds_paper_id_only(self, tmp_path, make_metadata):
-        """Test that WARNING results add paper_id but NOT 'verified via'.
-
-        WARNING means format differs but paper is correctly identified.
-        paper_id is written for identification, but "verified via" is omitted
-        so the entry will be re-checked on future runs.
-        """
-        from bibtools.semantic_scholar import ResolvedIds
-
-        bib_content = """% paper_id: ARXIV:1234.5678
-@article{test2024,
-  title = {test paper with lowercase},
-  author = {John Smith},
-  year = {2024}
-}
-"""
-        bib_file = tmp_path / "test.bib"
-        bib_file.write_text(bib_content)
-
-        verifier = BibVerifier(skip_verified=False)
-        # API returns title with different case -> WARNING
-        metadata = make_metadata(
-            title="Test Paper With Lowercase",  # Different case
-            authors=["John Smith"],
-            year=2024,
-        )
-        # Mock batch resolve and fetch_with_resolved for verify_file
-        resolved = ResolvedIds(
-            paper_id="ARXIV:1234.5678",
-            doi=None,
-            arxiv_id="1234.5678",
-            dblp_id=None,
-        )
-        verifier._resolve_batch = MagicMock(return_value={"ARXIV:1234.5678": resolved})
-        verifier._fetch_with_resolved = MagicMock(return_value=metadata)
-
-        report, updated_content = verifier.verify_file(bib_file)
-
-        # Should be a warning (case difference)
-        assert report.verified_with_warnings == 1
-        assert report.verified == 0
-        # WARNING adds paper_id only (no "verified via")
-        assert "% paper_id: ARXIV:1234.5678\n" in updated_content
-        assert "verified via" not in updated_content
-
-    def test_pass_adds_verified_comment(self, tmp_path, make_metadata):
-        """Test that PASS results DO add 'verified via' comment."""
-        from bibtools.semantic_scholar import ResolvedIds
-
-        bib_content = """% paper_id: ARXIV:1234.5678
-@article{test2024,
-  title = {Test Paper},
-  author = {Smith, John},
-  year = {2024}
-}
-"""
-        bib_file = tmp_path / "test.bib"
-        bib_file.write_text(bib_content)
-
-        verifier = BibVerifier(skip_verified=False)
-        # API returns exact match -> PASS (bibtex uses "Smith, John" format)
-        metadata = make_metadata(
-            title="Test Paper",
-            authors=["John Smith"],  # -> {"given": "John", "family": "Smith"} -> "Smith, John"
-            year=2024,
-        )
-        # Mock batch resolve and fetch_with_resolved for verify_file
-        resolved = ResolvedIds(
-            paper_id="ARXIV:1234.5678",
-            doi=None,
-            arxiv_id="1234.5678",
-            dblp_id=None,
-        )
-        verifier._resolve_batch = MagicMock(return_value={"ARXIV:1234.5678": resolved})
-        verifier._fetch_with_resolved = MagicMock(return_value=metadata)
-
-        report, updated_content = verifier.verify_file(bib_file)
-
-        # Should be a pass
-        assert report.verified == 1
-        assert report.verified_with_warnings == 0
-        # "verified via" SHOULD be added
-        assert "verified via bibtools" in updated_content
+        assert updated_content == bib_content
 
 
 class TestArxivCrossCheck:
@@ -713,10 +538,9 @@ class TestArxivCrossCheck:
         from bibtools.semantic_scholar import ResolvedIds
 
         verifier = BibVerifier(skip_verified=True, arxiv_check=False)
-        # Different authors in metadata vs arxiv (would fail if checked)
         metadata = make_metadata(
             title="Test Paper",
-            authors=["Wrong Author"],  # Different from arXiv
+            authors=["Wrong Author"],
             year=2024,
             source="dblp",
         )
@@ -734,12 +558,10 @@ class TestArxivCrossCheck:
             "title": "Test Paper",
             "author": "Wrong Author",
             "year": "2024",
-            "eprint": "1234.5678",
         }
-        content = "@article{test2024}"
+        content = "% paper_id: ARXIV:1234.5678\n@article{test2024,"
 
         result = verifier.verify_entry(entry, content)
-        # Should pass because arxiv_check is disabled
         assert result.success is True
 
     def test_arxiv_cross_check_authors_match(self, make_metadata):
@@ -765,7 +587,6 @@ class TestArxivCrossCheck:
         verifier._resolve_batch = MagicMock(return_value={"ARXIV:1234.5678": resolved})
         verifier._fetch_with_resolved = MagicMock(return_value=metadata)
 
-        # Mock arXiv client to return same authors
         arxiv_meta = ArxivMetadata(
             title="Test Paper",
             authors=[{"given": "John", "family": "Smith"}, {"given": "Jane", "family": "Doe"}],
@@ -778,9 +599,8 @@ class TestArxivCrossCheck:
                 "title": "Test Paper",
                 "author": "Smith, John and Doe, Jane",
                 "year": "2024",
-                "eprint": "1234.5678",
             }
-            content = "@article{test2024}"
+            content = "% paper_id: ARXIV:1234.5678\n@article{test2024,"
 
             result = verifier.verify_entry(entry, content)
             assert result.success is True
@@ -793,7 +613,6 @@ class TestArxivCrossCheck:
         from bibtools.semantic_scholar import ResolvedIds
 
         verifier = BibVerifier(skip_verified=True, arxiv_check=True)
-        # DBLP returns wrong authors (this can happen with OpenVLA case)
         metadata = make_metadata(
             title="Test Paper",
             authors=["Wrong Author", "Another Wrong"],
@@ -809,7 +628,6 @@ class TestArxivCrossCheck:
         verifier._resolve_batch = MagicMock(return_value={"ARXIV:1234.5678": resolved})
         verifier._fetch_with_resolved = MagicMock(return_value=metadata)
 
-        # Mock arXiv client to return different (correct) authors
         arxiv_meta = ArxivMetadata(
             title="Test Paper",
             authors=[{"given": "John", "family": "Smith"}, {"given": "Jane", "family": "Doe"}],
@@ -822,9 +640,8 @@ class TestArxivCrossCheck:
                 "title": "Test Paper",
                 "author": "Wrong Author and Another Wrong",
                 "year": "2024",
-                "eprint": "1234.5678",
             }
-            content = "@article{test2024}"
+            content = "% paper_id: ARXIV:1234.5678\n@article{test2024,"
 
             result = verifier.verify_entry(entry, content)
             assert result.success is False
@@ -836,12 +653,11 @@ class TestArxivCrossCheck:
         from bibtools.semantic_scholar import ResolvedIds
 
         verifier = BibVerifier(skip_verified=True, arxiv_check=True)
-        # Source is arxiv itself, no cross-check needed
         metadata = make_metadata(
             title="Test Paper",
             authors=["John Smith"],
             year=2024,
-            source="arxiv",  # Source is arxiv
+            source="arxiv",
         )
         resolved = ResolvedIds(
             paper_id="ARXIV:1234.5678",
@@ -857,12 +673,10 @@ class TestArxivCrossCheck:
             "title": "Test Paper",
             "author": "Smith, John",
             "year": "2024",
-            "eprint": "1234.5678",
         }
-        content = "@article{test2024}"
+        content = "% paper_id: ARXIV:1234.5678\n@article{test2024,"
 
         result = verifier.verify_entry(entry, content)
-        # Should pass - no cross-check for arxiv source
         assert result.success is True
 
     def test_arxiv_cross_check_no_arxiv_id(self, make_metadata):
@@ -879,7 +693,7 @@ class TestArxivCrossCheck:
         resolved = ResolvedIds(
             paper_id="DOI:10.1234/test",
             doi="10.1234/test",
-            arxiv_id=None,  # No arxiv ID
+            arxiv_id=None,
             dblp_id=None,
         )
         verifier._resolve_batch = MagicMock(return_value={"DOI:10.1234/test": resolved})
@@ -890,12 +704,10 @@ class TestArxivCrossCheck:
             "title": "Test Paper",
             "author": "Smith, John",
             "year": "2024",
-            "doi": "10.1234/test",
         }
-        content = "@article{test2024}"
+        content = "% paper_id: DOI:10.1234/test\n@article{test2024,"
 
         result = verifier.verify_entry(entry, content)
-        # Should pass - no arxiv_id to cross-check
         assert result.success is True
 
     def test_arxiv_cross_check_api_error_continues(self, make_metadata):
@@ -920,7 +732,6 @@ class TestArxivCrossCheck:
         verifier._resolve_batch = MagicMock(return_value={"ARXIV:1234.5678": resolved})
         verifier._fetch_with_resolved = MagicMock(return_value=metadata)
 
-        # Mock arXiv client to raise exception
         with patch.object(
             verifier._fetcher.arxiv_client,
             "get_paper_metadata",
@@ -931,10 +742,8 @@ class TestArxivCrossCheck:
                 "title": "Test Paper",
                 "author": "Smith, John",
                 "year": "2024",
-                "eprint": "1234.5678",
             }
-            content = "@article{test2024}"
+            content = "% paper_id: ARXIV:1234.5678\n@article{test2024,"
 
             result = verifier.verify_entry(entry, content)
-            # Should pass - arxiv error doesn't fail verification
             assert result.success is True

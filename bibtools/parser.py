@@ -211,3 +211,69 @@ def generate_verification_comment(paper_id: str, include_verified: bool = True) 
         return f"% paper_id: {paper_id}, verified via bibtools v{__version__} ({today})"
     else:
         return f"% paper_id: {paper_id}"
+
+
+def insert_paper_id_comment(
+    content: str,
+    entry_key: str,
+    paper_id: str,
+    *,
+    include_verified: bool = False,
+    extra_comments: list[str] | None = None,
+) -> str:
+    """Insert or replace paper_id comment for a bibtex entry.
+
+    Args:
+        content: Raw file content.
+        entry_key: Bibtex entry key.
+        paper_id: Paper ID string.
+        include_verified: If True, include "verified via bibtools vX.Y.Z (YYYY.MM.DD)".
+        extra_comments: Optional list of extra single-line comments (without leading "%").
+
+    Returns:
+        Updated content with the paper_id comment inserted or updated.
+    """
+    entry_pattern = re.compile(
+        rf"(\s*)((?:%[^\n]*\n)*)(@\w+\{{\s*{re.escape(entry_key)}\s*,)",
+        re.MULTILINE,
+    )
+    match = entry_pattern.search(content)
+    if not match:
+        return content
+
+    leading_whitespace = match.group(1)
+    existing_comments = match.group(2).strip()
+    entry_start = match.group(3)
+
+    prefix = content[: match.start()]
+
+    comment = generate_verification_comment(paper_id, include_verified=include_verified)
+
+    # Remove existing paper_id comments (any format)
+    existing_paper_id_pattern = re.compile(
+        r"%\s*paper_id:\s*\S+[^\n]*\n?",
+        re.IGNORECASE,
+    )
+    cleaned_comments = existing_paper_id_pattern.sub("", existing_comments)
+
+    extra_lines = []
+    if extra_comments:
+        for extra in extra_comments:
+            extra_line = extra.strip()
+            if not extra_line:
+                continue
+            if extra_line.startswith("%"):
+                extra_lines.append(extra_line)
+            else:
+                extra_lines.append(f"% {extra_line}")
+
+    comments_block_parts = []
+    if cleaned_comments.strip():
+        comments_block_parts.append(cleaned_comments.strip())
+    comments_block_parts.append(comment)
+    comments_block_parts.extend(extra_lines)
+
+    comments_block = "\n".join(comments_block_parts)
+    new_block = f"{leading_whitespace}{comments_block}\n{entry_start}"
+
+    return prefix + new_block + content[match.end() :]
