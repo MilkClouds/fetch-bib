@@ -151,6 +151,7 @@ class TestSearchCommand:
     @patch("bibtools.cli.MetadataFetcher")
     def test_search_success(self, mock_fetcher_class):
         from bibtools.models import PaperMetadata
+        from bibtools.models import FetchBundle
         from bibtools.semantic_scholar import ResolvedIds
 
         metadata = PaperMetadata(
@@ -167,7 +168,11 @@ class TestSearchCommand:
                 paper_id="paper1", doi="10.1/a", arxiv_id=None, dblp_id=None, venue="NeurIPS", title="ML Paper"
             ),
         ]
-        mock_fetcher._fetch_with_resolved.return_value = metadata
+        mock_fetcher.fetch_bundle_with_resolved.return_value = FetchBundle(
+            selected=metadata,
+            sources={"crossref": metadata},
+            arxiv_conflict=False,
+        )
 
         result = runner.invoke(app, ["search", "machine learning"])
         assert result.exit_code == 0
