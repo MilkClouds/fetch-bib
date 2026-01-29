@@ -327,12 +327,14 @@ def review(
         updated_content = verifier.apply_field_fixes(updated_content, entry, result.metadata, selected)
         paper_id = extract_paper_id_from_comments(updated_content, result.entry_key)
         if paper_id:
+            source_tag = result.metadata.source if result.metadata and result.metadata.source else "unknown"
+            verifier_tag = f"{verifier_name}[source={source_tag}]"
             updated_content = insert_paper_id_comment(
                 updated_content,
                 result.entry_key,
                 paper_id,
                 include_verified=True,
-                verifier_name=verifier_name,
+                verifier_name=verifier_tag,
             )
         else:
             console.print(f"[yellow]Missing paper_id comment for {result.entry_key}; cannot mark verified.[/]")
