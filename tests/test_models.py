@@ -1,6 +1,7 @@
 """Tests for models."""
 
 from bibtools.models import (
+    BibtexEntry,
     FieldMismatch,
     VerificationReport,
     VerificationResult,
@@ -30,6 +31,50 @@ class TestVerificationResult:
             message="Paper not found",
         )
         assert result.success is False
+
+
+class TestBibtexEntry:
+    """Tests for BibtexEntry class."""
+
+    def test_to_bibtex_field_order(self):
+        """Test serialization has correct field order: title, author, venue, year."""
+        entry = BibtexEntry(
+            key="test2024",
+            title="Test Paper",
+            authors=["John Smith"],
+            venue="Conference",
+            year=2024,
+        )
+        bibtex = entry.to_bibtex()
+        assert bibtex.index("  title") < bibtex.index("  author")
+        assert bibtex.index("  author") < bibtex.index("  booktitle")
+        assert bibtex.index("  booktitle") < bibtex.index("  year")
+
+    def test_to_bibtex_with_paper_id(self):
+        """Test serialization includes paper_id comment."""
+        entry = BibtexEntry(
+            key="test",
+            title="Test",
+            authors=["Author"],
+            venue=None,
+            year=2024,
+        )
+        bibtex = entry.to_bibtex("ARXIV:2106.15928")
+        assert "% paper_id: ARXIV:2106.15928" in bibtex
+
+    def test_to_bibtex_article_uses_journal(self):
+        """Test article entries use journal field."""
+        entry = BibtexEntry(
+            key="test",
+            title="Test",
+            authors=[],
+            venue="Nature",
+            year=2024,
+            entry_type="article",
+        )
+        bibtex = entry.to_bibtex()
+        assert "journal = {Nature}" in bibtex
+        assert "booktitle" not in bibtex
 
 
 class TestVerificationReport:

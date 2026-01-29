@@ -31,7 +31,12 @@ VENUE_ALIASES: dict[str, set[str]] = {
     "AAAI": {"aaai", "aaai conference on artificial intelligence"},
     "IJCAI": {"ijcai", "international joint conference on artificial intelligence"},
     "JMLR": {"jmlr", "journal of machine learning research"},
-    "TMLR": {"tmlr", "transactions on machine learning research"},
+    "TMLR": {
+        "tmlr",
+        "transactions on machine learning research",
+        "trans. mach. learn. res.",
+        "trans mach learn res",
+    },
     # Computer Vision
     "CVPR": {
         "cvpr",
@@ -154,6 +159,31 @@ def get_dblp_search_venue(venue: str) -> str:
         return "NIPS"
 
     return resolved
+
+
+def get_dblp_search_variants(venue: str | None) -> list[str]:
+    """Return venue variants to try in DBLP title search."""
+    if not venue:
+        return []
+
+    variants: list[str] = []
+    canonical = get_canonical_venue(venue)
+    if canonical:
+        variants.append(get_dblp_search_venue(canonical))
+        aliases = VENUE_ALIASES.get(canonical, set())
+        variants.extend(sorted(aliases))
+    variants.append(get_dblp_search_venue(venue))
+
+    # De-dup while preserving order
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for v in variants:
+        v = v.strip()
+        if not v or v.lower() in seen:
+            continue
+        seen.add(v.lower())
+        ordered.append(v)
+    return ordered
 
 
 def get_venue_short(venue: str, max_len: int = 50) -> str:

@@ -15,11 +15,11 @@ import arxiv
 import httpx
 
 from . import logging as logger
-from .models import Author, PaperMetadata
+from .models import Author, FetchBundle, PaperMetadata
 from .rate_limiter import get_rate_limiter
 from .semantic_scholar import ResolvedIds, SemanticScholarClient
 from .utils import unicode_to_latex
-from .venue_aliases import get_dblp_search_venue
+from .venue_aliases import get_dblp_search_variants
 
 # =============================================================================
 # Exceptions
@@ -248,12 +248,11 @@ class DBLPClient:
         def build_query(search_venue: str | None) -> str:
             query = title
             if search_venue:
-                resolved_venue = get_dblp_search_venue(search_venue)
-                query = f"{title} {resolved_venue}"
+                query = f"{title} {search_venue}"
             return query
 
         try:
-            for attempt_venue in (venue, None):
+            for attempt_venue in (*get_dblp_search_variants(venue), None):
                 query = build_query(attempt_venue)
                 logger.debug(f"DBLP title search: {query[:80]}...")
 
@@ -385,13 +384,24 @@ class MetadataFetcher:
            - elif venue != arXiv  → DBLP
            - elif venue == arXiv  → arXiv
         """
+        bundle = self.fetch_bundle(paper_id)
+        return bundle.selected if bundle else None
+
+    def fetch_bundle(self, paper_id: str) -> FetchBundle | None:
+        """Fetch paper metadata from all available sources.
+
+        Returns a bundle containing:
+        - selected: preferred SoT metadata
+        - sources: all fetched metadata keyed by source
+        - arxiv_conflict: True if arXiv differs from selected SoT
+        """
         resolved = self.s2_client.resolve_ids(paper_id)
         if not resolved:
             logger.debug(f"Paper not found in Semantic Scholar: {paper_id}")
             return None
 
         logger.info(f"Resolved: {paper_id} | DOI={resolved.doi} | arXiv={resolved.arxiv_id} | venue={resolved.venue}")
-        return self._fetch_with_resolved(resolved)
+        return self.fetch_bundle_with_resolved(resolved)
 
     def resolve_batch(self, paper_ids: list[str]) -> dict[str, ResolvedIds | None]:
         """Resolve multiple paper IDs via S2 batch API.
@@ -404,6 +414,59 @@ class MetadataFetcher:
     def fetch_with_resolved(self, resolved: ResolvedIds) -> PaperMetadata | None:
         """Fetch metadata using pre-resolved IDs (public wrapper)."""
         return self._fetch_with_resolved(resolved)
+
+    def fetch_bundle_with_resolved(self, resolved: ResolvedIds) -> FetchBundle:
+        """Fetch metadata using pre-resolved IDs (all sources)."""
+        sources: dict[str, PaperMetadata] = {}
+
+        # CrossRef (DOI)
+        if resolved.doi:
+            logger.info("Source: crossref (DOI exists)")
+            meta = self.crossref_client.get_paper_metadata(resolved.doi)
+            if meta:
+                sources["crossref"] = PaperMetadata(
+                    title=meta.title,
+                    authors=meta.authors,
+                    year=meta.year,
+                    venue=meta.venue,
+                    doi=meta.doi,
+                    arxiv_id=resolved.arxiv_id,
+                    source="crossref",
+                )
+
+        # DBLP (venue != arXiv)
+        if not self._is_arxiv_venue(resolved.venue):
+            logger.info(f"Source: dblp (venue={resolved.venue})")
+            if resolved.title:
+                meta = self.dblp_client.search_by_title(resolved.title, resolved.venue)
+                if meta:
+                    sources["dblp"] = PaperMetadata(
+                        title=meta.title,
+                        authors=meta.authors,
+                        year=meta.year,
+                        venue=meta.venue,
+                        doi=meta.doi,
+                        arxiv_id=resolved.arxiv_id,
+                        source="dblp",
+                    )
+
+        # arXiv
+        if resolved.arxiv_id:
+            logger.info("Source: arxiv")
+            meta = self.arxiv_client.get_paper_metadata(resolved.arxiv_id)
+            if meta:
+                sources["arxiv"] = PaperMetadata(
+                    title=meta.title,
+                    authors=meta.authors,
+                    year=meta.year,
+                    venue=meta.venue,
+                    arxiv_id=meta.arxiv_id,
+                    source="arxiv",
+                )
+
+        selected = self._select_sot(sources, resolved)
+        arxiv_conflict = self._has_arxiv_conflict(sources, selected)
+        return FetchBundle(selected=selected, sources=sources, arxiv_conflict=arxiv_conflict)
 
     def _fetch_with_resolved(self, resolved: ResolvedIds) -> PaperMetadata | None:
         # Case 1: DOI exists -> CrossRef
@@ -454,6 +517,41 @@ class MetadataFetcher:
                 )
 
         return None
+
+    def _select_sot(self, sources: dict[str, PaperMetadata], resolved: ResolvedIds) -> PaperMetadata | None:
+        """Select source of truth with fallback."""
+        if resolved.doi and "crossref" in sources:
+            return sources["crossref"]
+        if not self._is_arxiv_venue(resolved.venue) and "dblp" in sources:
+            return sources["dblp"]
+        if "arxiv" in sources:
+            return sources["arxiv"]
+        # Fallback order
+        return sources.get("crossref") or sources.get("dblp") or sources.get("arxiv")
+
+    def _has_arxiv_conflict(self, sources: dict[str, PaperMetadata], selected: PaperMetadata | None) -> bool:
+        """Return True if arXiv authors differ from selected SoT."""
+        if not selected:
+            return False
+        if "arxiv" in sources and selected.source != "arxiv":
+            arxiv_meta = sources["arxiv"]
+            return not self._authors_match(selected, arxiv_meta)
+        return False
+
+    def _authors_match(self, left: PaperMetadata, right: PaperMetadata) -> bool:
+        """Check normalized author list equality."""
+        from .utils import normalize_author_name
+
+        def normalize_list(meta: PaperMetadata) -> list[str]:
+            names = []
+            for a in meta.authors:
+                given = a.get("given", "")
+                family = a.get("family", "")
+                full = f"{given} {family}".strip()
+                names.append(normalize_author_name(full))
+            return names
+
+        return normalize_list(left) == normalize_list(right)
 
     def _is_arxiv_venue(self, venue: str | None) -> bool:
         if not venue:

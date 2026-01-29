@@ -39,11 +39,12 @@ class PaperMetadata:
 
 
 @dataclass
-class FetchResult:
-    """Result of fetching paper metadata and generating bibtex."""
+class FetchBundle:
+    """Fetch result with all available sources."""
 
-    bibtex: str
-    metadata: PaperMetadata
+    selected: PaperMetadata | None
+    sources: dict[str, PaperMetadata]
+    arxiv_conflict: bool = False
 
 
 class VerificationStatus(IntEnum):
@@ -72,6 +73,25 @@ class BibtexEntry:
     venue: str | None
     year: int | None
     entry_type: str = "inproceedings"  # "article" or "inproceedings"
+
+    @classmethod
+    def from_metadata(cls, meta: PaperMetadata) -> "BibtexEntry":
+        """Build a BibtexEntry from PaperMetadata."""
+        from .utils import format_author_bibtex_style
+
+        authors = [format_author_bibtex_style(a["given"], a["family"]) for a in meta.authors]
+        entry_type = "article" if meta.venue and "journal" in meta.venue.lower() else "inproceedings"
+        first_family = meta.authors[0]["family"] if meta.authors else "unknown"
+        key = f"{first_family.lower()}{meta.year or ''}"
+
+        return cls(
+            key=key,
+            title=meta.title,
+            authors=authors,
+            venue=meta.venue,
+            year=meta.year,
+            entry_type=entry_type,
+        )
 
     def to_bibtex(self, paper_id: str | None = None) -> str:
         """Serialize to normalized bibtex string.
@@ -134,6 +154,8 @@ class VerificationResult:
     mismatches: list[FieldMismatch] = field(default_factory=list)  # Hard errors (FAIL)
     warnings: list[FieldMismatch] = field(default_factory=list)  # Soft warnings (WARNING)
     fixed: bool = False  # True if fields were auto-fixed
+    sources: dict[str, PaperMetadata] | None = None
+    arxiv_conflict: bool = False
 
     @property
     def status(self) -> VerificationStatus:
@@ -215,3 +237,39 @@ class VerificationReport:
         - 2: FAIL (some entries failed verification)
         """
         return int(self.overall_status)
+
+
+@dataclass
+class ResolveResult:
+    """Result of resolving a paper_id for a bibtex entry."""
+
+    entry_key: str
+    success: bool
+    message: str
+    paper_id: str | None = None
+    source: str | None = None  # "comment", "doi", "eprint", "title"
+    confidence: float | None = None
+    already_has_paper_id: bool = False
+    updated: bool = False  # Whether the bib file would be updated
+
+
+@dataclass
+class ResolveReport:
+    """Overall resolve report."""
+
+    total_entries: int = 0
+    resolved: int = 0
+    skipped: int = 0  # Already has paper_id
+    failed: int = 0
+    results: list[ResolveResult] = field(default_factory=list)
+
+    def add_result(self, result: ResolveResult) -> None:
+        """Add a resolve result to the report."""
+        self.results.append(result)
+        self.total_entries += 1
+        if result.already_has_paper_id:
+            self.skipped += 1
+        elif result.success:
+            self.resolved += 1
+        else:
+            self.failed += 1

@@ -15,7 +15,7 @@
 
 \* FLOWER (CoRL 2025) — too recent for DBLP/S2 to have updated
 
-**Official sources are always correct** but require manual effort.
+**Official sources are the best available baseline**, but they can still contain errors. bibtools gives you a strict, transparent workflow and an interactive review step when data conflicts.
 
 **bibtools matches official sources** by fetching from CrossRef/DBLP/arXiv directly:
 
@@ -39,17 +39,33 @@ Source: dblp | Venue: ICLR | Year: 2022
 ## What it does
 
 1. **fetch** - Get bibtex from paper ID (arXiv, DOI, etc.)
-2. **verify** - Check existing .bib entries against official metadata
-3. **search** - Search papers by title and generate bibtex
+2. **search** - Search papers by title and generate bibtex (use with caution)
+3. **resolve** - Add `% paper_id:` comments to a .bib file (auto-match + confidence)
+4. **verify** - Verify existing .bib entries (no modifications)
+5. **review** - Interactively apply fixes for mismatches
 
 ## How it works
+
+### Resolve
+
+```
+bibtools resolve main.bib
+        ↓
+If % paper_id exists → skip
+Else:
+  doi field → DOI:... (confidence 1.00)
+  eprint field → ARXIV:... (confidence 1.00)
+  title search → best match (confidence = title similarity)
+        ↓
+Write % paper_id comment
+```
+
+### Verify
 
 ```
 bibtools verify main.bib
         ↓
-Skip already verified entries (% paper_id: ..., verified via ...)
-        ↓
-Extract paper_id (DOI/arXiv ID) from each entry
+Use % paper_id comments only
         ↓
 Semantic Scholar → Resolve to DOI/arXiv ID + venue
         ↓
@@ -66,6 +82,18 @@ Cross-check with arXiv (if arXiv ID exists, --no-arxiv-check to disable)
 Compare with existing entry → PASS / WARNING / FAIL
 ```
 
+### Review
+
+```
+bibtools review main.bib
+        ↓
+Run verify
+        ↓
+Show mismatches and prompt per-field fixes
+        ↓
+Write updated .bib
+```
+
 **Data sources (Single Source of Truth):**
 
 | Condition | Source |
@@ -74,7 +102,7 @@ Compare with existing entry → PASS / WARNING / FAIL
 | No DOI, venue != arXiv | **DBLP** |
 | No DOI, venue == arXiv | **arXiv** |
 
-Semantic Scholar is used to resolve paper IDs and detect venue, which determines which source to use.
+Semantic Scholar is used for identifier resolution only, not as a metadata source.
 
 ## Is it reliable?
 
@@ -99,23 +127,42 @@ uv tool install git+https://github.com/MilkClouds/bibtools
 ## Quick Start
 
 ```bash
-bibtools fetch 2106.09685             # LoRA - auto-detects arXiv ID, gets ICLR 2022 from DBLP
-bibtools fetch DOI:10.1109/CVPR.2016.90  # Fetch by DOI
-bibtools verify main.bib              # Verify existing entries
+bibtools fetch 2106.09685                  # LoRA - auto-detects arXiv ID, gets ICLR 2022 from DBLP
+bibtools resolve main.bib                   # Add % paper_id comments (auto-match + confidence in stdout)
+bibtools verify main.bib                    # Verify existing entries (no modifications)
+bibtools review main.bib                    # Interactive fix for mismatches
 bibtools search "Attention Is All You Need"  # Search (use with caution)
 ```
 
 ## Commands
 
-### verify
+### resolve
 
-Verifies bibtex entries against official metadata from CrossRef/DBLP/arXiv.
+Add `% paper_id:` comments to entries by ID fields or title matching.
 
 ```bash
-bibtools verify main.bib                      # Default: --auto-find=id
-bibtools verify main.bib --auto-find=none     # Strict: comment only
-bibtools verify main.bib --auto-find=none --fix-errors    # Fix errors
-bibtools verify main.bib --auto-find=none --fix-warnings  # Fix warnings (venue, case)
+bibtools resolve main.bib
+bibtools resolve main.bib --min-confidence 0.90
+bibtools resolve main.bib --dry-run
+```
+
+### verify
+
+Verifies bibtex entries against official metadata from CrossRef/DBLP/arXiv. **Does not modify files.**
+
+```bash
+bibtools verify main.bib
+bibtools verify main.bib --reverify
+```
+
+### review
+
+Interactively fix mismatches detected by `verify`.
+
+```bash
+bibtools review main.bib
+bibtools review main.bib --verified-via "human(Alice)"
+bibtools review main.bib --include-warnings
 ```
 
 ### fetch

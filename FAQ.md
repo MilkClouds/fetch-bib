@@ -84,7 +84,7 @@ Examples:
 ## Comment Format
 
 ```bibtex
-% paper_id: ARXIV:2106.15928, verified via bibtools@0.2.0 (2025.01.06)
+% paper_id: ARXIV:2106.15928, verified via bibtools v0.2.0 (2025.01.06)
 @inproceedings{example2024,
   title = {Example Paper},
   ...
@@ -95,19 +95,42 @@ Examples:
 
 States:
 - `% paper_id: ARXIV:xxx` — unverified (will be re-verified)
-- `% paper_id: ARXIV:xxx, verified via bibtools (YYYY.MM.DD)` — verified (skipped)
+- `% paper_id: ARXIV:xxx, verified via bibtools vX.Y.Z (YYYY.MM.DD)` — verified (skipped)
 - `% paper_id: ARXIV:xxx, verified via human (YYYY.MM.DD)` — manually verified
 - `% paper_id: SKIP, verified via human (YYYY.MM.DD)` — skip entry (tech reports, etc.)
 
+
 ---
 
-## Auto-find Levels
+## Commands
 
-| Level | Sources | Use case |
-|-------|---------|----------|
-| `none` | `% paper_id:` comment only | Strict, required for `--fix-*` |
-| `id` | comment > `doi` > `eprint` | Default |
-| `title` | Above + title search | Risky |
+### resolve
+
+Add `% paper_id:` comments using DOI/eprint or title matching.
+
+```bash
+bibtools resolve main.bib
+bibtools resolve main.bib --min-confidence 0.90
+```
+
+### verify
+
+Verify entries **without modifying** files.
+
+```bash
+bibtools verify main.bib
+bibtools verify main.bib --reverify
+```
+
+### review
+
+Interactive fixes for mismatches.
+
+```bash
+bibtools review main.bib
+bibtools review main.bib --verified-via "human(Alice)"
+bibtools review main.bib --include-warnings
+```
 
 ---
 
@@ -115,15 +138,12 @@ States:
 
 | Option | Description |
 |--------|-------------|
-| `--dry-run` | Preview without modifying |
-| `--auto-find=none/id/title` | Paper ID discovery (default: id) |
-| `--fix-errors` | Auto-fix ERROR fields (requires --auto-find=none) |
-| `--fix-warnings` | Auto-fix WARNING fields (requires --auto-find=none) |
-| `--no-arxiv-check` | Disable arXiv cross-check |
-| `--mark-warnings-verified` | Mark WARNING entries as verified |
+| `--dry-run` | Preview without modifying (resolve only) |
+| `--min-confidence` | Minimum title-match confidence (resolve) |
+| `--no-arxiv-check` | Disable arXiv cross-check (verify/review) |
 | `--reverify` | Re-verify all entries |
 | `--max-age=N` | Re-verify entries older than N days |
-| `-o FILE` | Output to different file |
+| `-o FILE` | Output to different file (resolve/review) |
 | `--api-key` | Semantic Scholar API key |
 
 ---
@@ -137,4 +157,3 @@ States:
 | arXiv | No official limit |
 
 Set `SEMANTIC_SCHOLAR_API_KEY` for faster requests.
-

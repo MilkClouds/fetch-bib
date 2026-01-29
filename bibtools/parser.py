@@ -9,7 +9,6 @@ from bibtexparser.bparser import BibTexParser
 from bibtexparser.customization import convert_to_unicode
 
 from . import __version__
-from .constants import AUTO_FIND_ID, AUTO_FIND_NONE
 
 # Regex patterns for paper_id comments
 # Format 1: "% paper_id: {paper_id}" (unverified, just paper_id)
@@ -147,53 +146,11 @@ def extract_paper_id_from_comments(content: str, entry_key: str) -> str | None:
     return None
 
 
-def extract_paper_id_from_entry(
-    entry: dict, content: str, auto_find_level: str = AUTO_FIND_ID
-) -> tuple[str | None, str | None]:
-    """Extract paper_id from entry fields or comments.
-
-    Priority: comment paper_id > doi field > eprint field
-
-    Args:
-        entry: Bibtex entry dictionary.
-        content: Raw file content.
-        auto_find_level: Level of auto-find: "none", "id", or "title".
-
-    Returns:
-        Tuple of (paper_id, source). Source is "comment", "doi", "eprint", or None.
-        Note: "title" source is handled separately in verifier (requires API call).
-    """
-    entry_key = entry.get("ID", "")
-
-    # 1. Check comment for explicit paper_id
-    paper_id = extract_paper_id_from_comments(content, entry_key)
-    if paper_id:
-        return paper_id, "comment"
-
-    # If auto_find_level is "none", stop here
-    if auto_find_level == AUTO_FIND_NONE:
-        return None, None
-
-    # Levels "id" and "title" allow doi/eprint lookup
-    # 2. Check doi field
-    doi = entry.get("doi", "")
-    if doi:
-        # Remove URL prefix if present
-        doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
-        return f"DOI:{doi}", "doi"
-
-    # 3. Check eprint field (arXiv)
-    eprint = entry.get("eprint", "")
-    if eprint:
-        # Clean up the ID
-        eprint = eprint.replace("arXiv:", "").strip()
-        return f"ARXIV:{eprint}", "eprint"
-
-    # Title search is handled in verifier (requires API call)
-    return None, None
-
-
-def generate_verification_comment(paper_id: str, include_verified: bool = True) -> str:
+def generate_verification_comment(
+    paper_id: str,
+    include_verified: bool = True,
+    verifier_name: str | None = None,
+) -> str:
     """Generate verification comment line.
 
     Args:
@@ -208,6 +165,78 @@ def generate_verification_comment(paper_id: str, include_verified: bool = True) 
     """
     if include_verified:
         today = date.today().strftime("%Y.%m.%d")
-        return f"% paper_id: {paper_id}, verified via bibtools v{__version__} ({today})"
+        verifier = verifier_name or f"bibtools v{__version__}"
+        return f"% paper_id: {paper_id}, verified via {verifier} ({today})"
     else:
         return f"% paper_id: {paper_id}"
+
+
+def insert_paper_id_comment(
+    content: str,
+    entry_key: str,
+    paper_id: str,
+    *,
+    include_verified: bool = False,
+    verifier_name: str | None = None,
+    extra_comments: list[str] | None = None,
+) -> str:
+    """Insert or replace paper_id comment for a bibtex entry.
+
+    Args:
+        content: Raw file content.
+        entry_key: Bibtex entry key.
+        paper_id: Paper ID string.
+        include_verified: If True, include "verified via bibtools vX.Y.Z (YYYY.MM.DD)".
+        extra_comments: Optional list of extra single-line comments (without leading "%").
+
+    Returns:
+        Updated content with the paper_id comment inserted or updated.
+    """
+    entry_pattern = re.compile(
+        rf"(\s*)((?:%[^\n]*\n)*)(@\w+\{{\s*{re.escape(entry_key)}\s*,)",
+        re.MULTILINE,
+    )
+    match = entry_pattern.search(content)
+    if not match:
+        return content
+
+    leading_whitespace = match.group(1)
+    existing_comments = match.group(2).strip()
+    entry_start = match.group(3)
+
+    prefix = content[: match.start()]
+
+    comment = generate_verification_comment(
+        paper_id,
+        include_verified=include_verified,
+        verifier_name=verifier_name,
+    )
+
+    # Remove existing paper_id comments (any format)
+    existing_paper_id_pattern = re.compile(
+        r"%\s*paper_id:\s*\S+[^\n]*\n?",
+        re.IGNORECASE,
+    )
+    cleaned_comments = existing_paper_id_pattern.sub("", existing_comments)
+
+    extra_lines = []
+    if extra_comments:
+        for extra in extra_comments:
+            extra_line = extra.strip()
+            if not extra_line:
+                continue
+            if extra_line.startswith("%"):
+                extra_lines.append(extra_line)
+            else:
+                extra_lines.append(f"% {extra_line}")
+
+    comments_block_parts = []
+    if cleaned_comments.strip():
+        comments_block_parts.append(cleaned_comments.strip())
+    comments_block_parts.append(comment)
+    comments_block_parts.extend(extra_lines)
+
+    comments_block = "\n".join(comments_block_parts)
+    new_block = f"{leading_whitespace}{comments_block}\n{entry_start}"
+
+    return prefix + new_block + content[match.end() :]
