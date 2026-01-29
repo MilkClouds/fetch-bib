@@ -9,7 +9,6 @@ from bibtexparser.bparser import BibTexParser
 from bibtexparser.customization import convert_to_unicode
 
 from . import __version__
-from .constants import AUTO_FIND_ID, AUTO_FIND_NONE
 
 # Regex patterns for paper_id comments
 # Format 1: "% paper_id: {paper_id}" (unverified, just paper_id)
@@ -146,51 +145,6 @@ def extract_paper_id_from_comments(content: str, entry_key: str) -> str | None:
 
     return None
 
-
-def extract_paper_id_from_entry(
-    entry: dict, content: str, auto_find_level: str = AUTO_FIND_ID
-) -> tuple[str | None, str | None]:
-    """Extract paper_id from entry fields or comments.
-
-    Priority: comment paper_id > doi field > eprint field
-
-    Args:
-        entry: Bibtex entry dictionary.
-        content: Raw file content.
-        auto_find_level: Level of auto-find: "none", "id", or "title".
-
-    Returns:
-        Tuple of (paper_id, source). Source is "comment", "doi", "eprint", or None.
-        Note: "title" source is handled separately in verifier (requires API call).
-    """
-    entry_key = entry.get("ID", "")
-
-    # 1. Check comment for explicit paper_id
-    paper_id = extract_paper_id_from_comments(content, entry_key)
-    if paper_id:
-        return paper_id, "comment"
-
-    # If auto_find_level is "none", stop here
-    if auto_find_level == AUTO_FIND_NONE:
-        return None, None
-
-    # Levels "id" and "title" allow doi/eprint lookup
-    # 2. Check doi field
-    doi = entry.get("doi", "")
-    if doi:
-        # Remove URL prefix if present
-        doi = doi.replace("https://doi.org/", "").replace("http://doi.org/", "")
-        return f"DOI:{doi}", "doi"
-
-    # 3. Check eprint field (arXiv)
-    eprint = entry.get("eprint", "")
-    if eprint:
-        # Clean up the ID
-        eprint = eprint.replace("arXiv:", "").strip()
-        return f"ARXIV:{eprint}", "eprint"
-
-    # Title search is handled in verifier (requires API call)
-    return None, None
 
 
 def generate_verification_comment(

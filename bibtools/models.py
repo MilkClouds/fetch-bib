@@ -39,11 +39,12 @@ class PaperMetadata:
 
 
 @dataclass
-class FetchResult:
-    """Result of fetching paper metadata and generating bibtex."""
+class FetchBundle:
+    """Fetch result with all available sources."""
 
-    bibtex: str
-    metadata: PaperMetadata
+    selected: PaperMetadata | None
+    sources: dict[str, PaperMetadata]
+    arxiv_conflict: bool = False
 
 
 class VerificationStatus(IntEnum):
@@ -72,6 +73,25 @@ class BibtexEntry:
     venue: str | None
     year: int | None
     entry_type: str = "inproceedings"  # "article" or "inproceedings"
+
+    @classmethod
+    def from_metadata(cls, meta: PaperMetadata) -> "BibtexEntry":
+        """Build a BibtexEntry from PaperMetadata."""
+        from .utils import format_author_bibtex_style
+
+        authors = [format_author_bibtex_style(a["given"], a["family"]) for a in meta.authors]
+        entry_type = "article" if meta.venue and "journal" in meta.venue.lower() else "inproceedings"
+        first_family = meta.authors[0]["family"] if meta.authors else "unknown"
+        key = f"{first_family.lower()}{meta.year or ''}"
+
+        return cls(
+            key=key,
+            title=meta.title,
+            authors=authors,
+            venue=meta.venue,
+            year=meta.year,
+            entry_type=entry_type,
+        )
 
     def to_bibtex(self, paper_id: str | None = None) -> str:
         """Serialize to normalized bibtex string.
@@ -134,6 +154,8 @@ class VerificationResult:
     mismatches: list[FieldMismatch] = field(default_factory=list)  # Hard errors (FAIL)
     warnings: list[FieldMismatch] = field(default_factory=list)  # Soft warnings (WARNING)
     fixed: bool = False  # True if fields were auto-fixed
+    sources: dict[str, PaperMetadata] | None = None
+    arxiv_conflict: bool = False
 
     @property
     def status(self) -> VerificationStatus:

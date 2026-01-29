@@ -7,10 +7,11 @@ import typer
 from rich.console import Console
 
 from . import __version__
-from .generator import BibtexGenerator
+from .fetcher import FetchError, MetadataFetcher
+from .models import BibtexEntry
 from .parser import extract_paper_id_from_comments, insert_paper_id_comment, parse_bib_file
 from .resolver import BibResolver
-from .verifier import BibVerifier
+from .verifier import apply_field_fixes, check_field_mismatches, verify_file
 
 app = typer.Typer(
     name="bibtools",
@@ -110,19 +111,21 @@ def verify(
         else:
             console.print(f"[dim]Re-verify:[/] entries older than {effective_max_age} days")
 
-    verifier = BibVerifier(
-        api_key=api_key,
-        skip_verified=True,  # Always True when using max_age logic
-        max_age_days=effective_max_age,
-        arxiv_check=arxiv_check,
-        console=console,
-    )
-
+    fetcher = MetadataFetcher(api_key=api_key)
     try:
-        report, _ = verifier.verify_file(bib_file)
+        report, _ = verify_file(
+            bib_file,
+            fetcher=fetcher,
+            skip_verified=True,
+            max_age_days=effective_max_age,
+            arxiv_check=arxiv_check,
+            console=console,
+        )
     except Exception as e:
         console.print(f"[bold red]Error:[/] {e}")
         raise typer.Exit(1)
+    finally:
+        fetcher.close()
 
     # Print results (always show important info)
     _print_actionable_results(report)
@@ -255,14 +258,21 @@ def review(
     """Interactively review and fix mismatched bibtex entries."""
     console.print(f"\n[bold blue]Reviewing:[/] {bib_file}")
 
-    verifier = BibVerifier(api_key=api_key, arxiv_check=arxiv_check, console=console)
+    fetcher = MetadataFetcher(api_key=api_key)
     try:
-        report, content = verifier.verify_file(bib_file)
+        report, content = verify_file(
+            bib_file,
+            fetcher=fetcher,
+            skip_verified=True,
+            max_age_days=None,
+            arxiv_check=arxiv_check,
+            console=console,
+        )
     except Exception as e:
         console.print(f"[bold red]Error:[/] {e}")
         raise typer.Exit(1)
     finally:
-        verifier.close()
+        fetcher.close()
 
     entries, _ = parse_bib_file(bib_file)
     entry_map = {entry.get("ID", ""): entry for entry in entries}
@@ -298,8 +308,34 @@ def review(
 
         console.print(f"\n[bold cyan]{result.entry_key}[/]")
         meta = result.metadata
+        selected_source = meta.source or "unknown"
+        selected_meta = meta
+
+        if result.arxiv_conflict and result.sources and "arxiv" in result.sources:
+            arxiv_pm = result.sources["arxiv"]
+
+            console.print("[yellow]Source conflict detected (arXiv vs official source).[/]")
+            console.print(
+                f"[dim]1) {meta.source}:[/] {meta.title} | {meta.year or 'N/A'} | {meta.venue or 'N/A'}"
+            )
+            console.print(
+                f"[dim]2) arXiv:[/] {arxiv_pm.title} | {arxiv_pm.year or 'N/A'} | {arxiv_pm.venue or 'N/A'}"
+            )
+
+            choice = typer.prompt("Choose source of truth (1/2/3=skip)", default="1", show_default=True)
+            if choice.strip() == "2":
+                selected_meta = arxiv_pm
+                selected_source = "arxiv"
+            elif choice.strip() == "3":
+                continue
+            else:
+                selected_meta = meta
+                selected_source = meta.source or "unknown"
+
+            result.mismatches, result.warnings = check_field_mismatches(entry, selected_meta)
+
         console.print(
-            f"[dim]Source:[/] {meta.source or 'unknown'} | [dim]Venue:[/] {meta.venue or 'N/A'}"
+            f"[dim]Source:[/] {selected_source} | [dim]Venue:[/] {selected_meta.venue or 'N/A'}"
         )
         if result.mismatches:
             console.print("[red]Mismatches:[/]")
@@ -334,11 +370,10 @@ def review(
             console.print("[yellow]No fields selected; skipping.[/]")
             continue
 
-        updated_content = verifier.apply_field_fixes(updated_content, entry, result.metadata, selected)
+        updated_content = apply_field_fixes(updated_content, entry, selected_meta, selected)
         paper_id = extract_paper_id_from_comments(updated_content, result.entry_key)
         if paper_id:
-            source_tag = result.metadata.source if result.metadata and result.metadata.source else "unknown"
-            verifier_tag = f"{verifier_name}[source={source_tag}]"
+            verifier_tag = f"{verifier_name}[source={selected_source}]"
             updated_content = insert_paper_id_comment(
                 updated_content,
                 result.entry_key,
@@ -383,22 +418,21 @@ def fetch(
         bibtools fetch ARXIV:2106.15928
         bibtools fetch "DOI:10.18653/v1/N18-3011"
     """
-    from .fetcher import FetchError
-
-    generator = BibtexGenerator(api_key=api_key)
+    fetcher = MetadataFetcher(api_key=api_key)
     try:
-        result = generator.fetch_by_paper_id(paper_id)
+        bundle = fetcher.fetch_bundle(paper_id)
     except FetchError as e:
         console.print(f"[bold red]Error:[/] {e}")
         raise typer.Exit(1)
     finally:
-        generator.close()
+        fetcher.close()
 
-    if not result:
+    if not bundle or not bundle.selected:
         console.print(f"[bold red]Error:[/] Paper not found: {paper_id}")
         raise typer.Exit(1)
 
-    meta = result.metadata
+    meta = bundle.selected
+    bibtex = BibtexEntry.from_metadata(meta).to_bibtex(paper_id)
     authors_str = ", ".join(f"{a['given']} {a['family']}" for a in meta.authors[:3])
     if len(meta.authors) > 3:
         authors_str += f" et al. ({len(meta.authors)} authors)"
@@ -408,7 +442,7 @@ def fetch(
     console.print(f"[dim]Venue:[/] {meta.venue or 'N/A'}")
     console.print(f"[dim]Authors:[/] {authors_str}")
     console.print()
-    console.print(result.bibtex)
+    console.print(bibtex)
 
 
 @app.command()
@@ -451,11 +485,17 @@ def search(
         "   Always verify the returned bibtex before using.\n"
     )
 
-    generator = BibtexGenerator(api_key=api_key)
+    fetcher = MetadataFetcher(api_key=api_key)
     try:
-        results = generator.search_by_query(query, limit=limit)
+        resolved_list = fetcher.s2_client.search_by_title(query, limit=limit)
+        results: list[tuple[str, object]] = []
+        for resolved in resolved_list:
+            metadata = fetcher._fetch_with_resolved(resolved)
+            if metadata:
+                bibtex = BibtexEntry.from_metadata(metadata).to_bibtex(resolved.paper_id)
+                results.append((bibtex, metadata))
     finally:
-        generator.close()
+        fetcher.close()
 
     if not results:
         console.print(f"[bold red]No results found for:[/] {query}")
@@ -463,10 +503,10 @@ def search(
 
     console.print(f"[bold blue]Found {len(results)} result(s) for:[/] {query}\n")
 
-    for i, result in enumerate(results, 1):
-        venue = result.metadata.venue or "N/A"
-        console.print(f"[bold cyan]#{i}[/] {result.metadata.title} ({result.metadata.year}, {venue})\n")
-        console.print(result.bibtex)
+    for i, (bibtex, metadata) in enumerate(results, 1):
+        venue = metadata.venue or "N/A"
+        console.print(f"[bold cyan]#{i}[/] {metadata.title} ({metadata.year}, {venue})\n")
+        console.print(bibtex)
         console.print()
 
 
