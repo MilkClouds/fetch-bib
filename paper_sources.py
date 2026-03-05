@@ -7,79 +7,39 @@
 #     "python-dotenv",
 # ]
 # ///
-"""Fetch paper metadata from multiple sources and present side-by-side.
+"""Fetch paper metadata from multiple academic sources and present raw results.
 
 This tool fetches and presents. It never judges.
-
-Each source returns what it has — no filtering, no "best source" selection,
-no hardcoded venue maps. The human (or AI agent downstream) decides what to trust.
-
-Sources: Semantic Scholar (ID resolution), CrossRef, DBLP, arXiv, OpenReview, ACL Anthology.
-
-Usage:
-    uv run paper_sources.py 2010.11929            # arXiv ID (ViT)
-    uv run paper_sources.py 1706.03762            # arXiv ID (Attention)
-    uv run paper_sources.py 10.18653/v1/N19-1423  # DOI (BERT)
-    uv run paper_sources.py --json 2010.11929     # JSON output for piping
+For each source, it shows: where it asked, what it asked, and what came back.
+Run with --help for full usage, source descriptions, and output format details.
 """
 
 from __future__ import annotations
 
 import argparse
-import html as html_mod
 import json
 import os
 import re
 import sys
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 
 load_dotenv()
 
-# =============================================================================
-# Models
-# =============================================================================
-
-
-@dataclass
-class SourceResult:
-    """Metadata returned by a single source."""
-
-    source: str
-    title: str | None = None
-    authors: list[str] = field(default_factory=list)
-    year: int | None = None
-    venue: str | None = None
-    entry_type: str | None = None
-    doi: str | None = None
-    url: str | None = None
-    pages: str | None = None
-    volume: str | None = None
-    number: str | None = None
-    bibtex: str | None = None
-    extra: dict[str, Any] = field(default_factory=dict)
-    error: str | None = None
-
-
-@dataclass
-class ResolvedPaper:
-    """IDs resolved via Semantic Scholar."""
-
-    paper_id: str
-    doi: str | None = None
-    arxiv_id: str | None = None
-    dblp_id: str | None = None
-    acl_id: str | None = None
-    venue: str | None = None
-    title: str | None = None
+# -- Type alias: each source returns this structure --
+# {
+#   "request":  {"url": str, "params": dict},       # what was asked
+#   "response": {... source-specific raw fields},    # what came back
+#   "error":    str | None,                          # if it failed
+#   "status":   "ok" | "no_match" | "error" | "skipped",
+#   "skip_reason": str | None,                       # why skipped
+# }
+SourceData = dict[str, Any]
 
 
 # =============================================================================
@@ -105,12 +65,12 @@ def _titles_match(t1: str, t2: str) -> bool:
     return norm(t1) == norm(t2)
 
 
-def _request(client: httpx.Client, url: str, *, headers: dict | None = None, **kwargs: Any) -> httpx.Response | None:
-    """GET with retry on 429. Returns None on 404."""
+def _get(client: httpx.Client, url: str, *, headers: dict | None = None, **kwargs: Any) -> httpx.Response | None:
+    """GET with retry on 429. Returns None on 404/410. Raises on other errors."""
     hdrs = headers or {}
     for attempt in range(3):
         resp = client.get(url, headers=hdrs, **kwargs)
-        if resp.status_code == 404:
+        if resp.status_code in (404, 410):
             return None
         if resp.status_code == 429:
             wait = (attempt + 1) * 5
@@ -122,8 +82,16 @@ def _request(client: httpx.Client, url: str, *, headers: dict | None = None, **k
     return None
 
 
+def _skipped(name: str, reason: str) -> SourceData:
+    return {"source": name, "status": "skipped", "skip_reason": reason}
+
+
+def _error(name: str, request: dict, err: str) -> SourceData:
+    return {"source": name, "request": request, "status": "error", "error": err}
+
+
 # =============================================================================
-# Source: Semantic Scholar (ID resolution only)
+# Semantic Scholar (ID resolution)
 # =============================================================================
 
 _S2_BASE = "https://api.semanticscholar.org/graph/v1"
@@ -131,193 +99,185 @@ _S2_FIELDS = "paperId,externalIds,venue,title"
 
 
 def _s2_headers() -> dict[str, str]:
-    headers: dict[str, str] = {}
     key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
-    if key:
-        headers["x-api-key"] = key
-    return headers
+    return {"x-api-key": key} if key else {}
 
 
-def resolve_s2(client: httpx.Client, paper_id: str) -> ResolvedPaper | None:
+def resolve_s2(client: httpx.Client, paper_id: str) -> SourceData:
+    """Resolve a paper ID to external IDs via Semantic Scholar."""
     normalized = _normalize_paper_id(paper_id)
+    url = f"{_S2_BASE}/paper/{normalized}"
+    params = {"fields": _S2_FIELDS}
+    req = {"url": url, "params": params}
+
     try:
-        resp = _request(client, f"{_S2_BASE}/paper/{normalized}", headers=_s2_headers(), params={"fields": _S2_FIELDS})
+        resp = _get(client, url, headers=_s2_headers(), params=params)
     except httpx.HTTPError as e:
-        print(f"  S2 error: {e}", file=sys.stderr)
-        return None
+        return _error("semantic_scholar", req, str(e))
     if not resp:
-        return None
+        return _error("semantic_scholar", req, "not found")
 
     data = resp.json()
-    pid = data.get("paperId", "")
-    if not pid:
-        return None
-
-    ext = data.get("externalIds") or {}
-    doi = ext.get("DOI")
-
-    return ResolvedPaper(
-        paper_id=pid,
-        doi=doi,
-        arxiv_id=ext.get("ArXiv"),
-        dblp_id=ext.get("DBLP"),
-        acl_id=ext.get("ACL"),
-        venue=data.get("venue") or None,
-        title=data.get("title") or None,
-    )
+    return {
+        "source": "semantic_scholar",
+        "request": req,
+        "status": "ok",
+        "response": data,
+    }
 
 
 # =============================================================================
-# Source: CrossRef
+# CrossRef
 # =============================================================================
 
 
-def fetch_crossref(client: httpx.Client, doi: str) -> SourceResult | None:
+def fetch_crossref(client: httpx.Client, doi: str, *, raw: bool = False) -> SourceData:
     doi = doi.removeprefix("DOI:").removeprefix("doi:")
+    url = f"https://api.crossref.org/works/{doi}"
+    req = {"url": url}
+
     try:
-        resp = _request(
-            client,
-            f"https://api.crossref.org/works/{doi}",
-            headers={"User-Agent": "paper_sources/0.1 (https://github.com/bibtools)"},
-        )
+        ua = "paper_sources/0.1 (https://github.com/bibtools)"
+        email = os.environ.get("CROSSREF_EMAIL")
+        if email:
+            ua += f" (mailto:{email})"
+        resp = _get(client, url, headers={"User-Agent": ua})
     except httpx.HTTPError as e:
-        return SourceResult(source="crossref", error=str(e))
+        return _error("crossref", req, str(e))
     if not resp:
-        return None
+        return _error("crossref", req, "not found")
 
     msg = resp.json().get("message", {})
-
-    # Title (may contain HTML entities/tags)
-    raw_title = (msg.get("title") or [""])[0]
-    title = html_mod.unescape(re.sub(r"<[^>]+>", "", raw_title)).strip() or None
-
-    authors = [f"{a.get('given', '')} {a['family']}".strip() for a in msg.get("author", []) if "family" in a]
-
-    year = None
-    for key in ("published", "issued"):
-        parts = msg.get(key, {}).get("date-parts", [[]])
-        if parts and parts[0]:
-            year = parts[0][0]
-            break
-
-    return SourceResult(
-        source="crossref",
-        title=title,
-        authors=authors,
-        year=year,
-        venue=(msg.get("container-title") or [None])[0],
-        doi=doi,
-        pages=msg.get("page"),
-        volume=msg.get("volume"),
-        number=msg.get("issue"),
-    )
+    if raw:
+        response = msg
+    else:
+        response = {
+            "title": msg.get("title"),
+            "author": msg.get("author"),
+            "published": msg.get("published"),
+            "issued": msg.get("issued"),
+            "container-title": msg.get("container-title"),
+            "DOI": msg.get("DOI"),
+            "type": msg.get("type"),
+            "page": msg.get("page"),
+            "volume": msg.get("volume"),
+            "issue": msg.get("issue"),
+            "publisher": msg.get("publisher"),
+        }
+    return {
+        "source": "crossref",
+        "request": req,
+        "status": "ok",
+        "response": response,
+    }
 
 
 # =============================================================================
-# Source: DBLP
+# DBLP
 # =============================================================================
 
 
-def fetch_dblp(client: httpx.Client, title: str, venue: str | None = None) -> SourceResult | None:
+def fetch_dblp(client: httpx.Client, title: str, venue: str | None = None, *, raw: bool = False) -> SourceData:
     if not title:
-        return None
+        return _skipped("dblp", "no title")
 
-    # Try with venue first (if available), then title-only as fallback
     queries = [f"{title} {venue}", title] if venue else [title]
-    for query in queries:
-        try:
-            resp = client.get("https://dblp.org/search/publ/api", params={"q": query, "format": "json", "h": 10})
-            resp.raise_for_status()
-        except httpx.HTTPError as e:
-            return SourceResult(source="dblp", error=str(e))
+    last_req: dict = {}
 
-        for hit in resp.json().get("result", {}).get("hits", {}).get("hit", []):
+    last_error: str | None = None
+    for query in queries:
+        url = "https://dblp.org/search/publ/api"
+        params = {"q": query, "format": "json", "h": 10}
+        last_req = {"url": url, "params": params}
+
+        try:
+            resp = _get(client, url, params=params)
+            if not resp:
+                last_error = "not found"
+                continue
+        except httpx.HTTPError as e:
+            last_error = str(e)
+            continue  # try next query variant
+
+        last_error = None
+        hits = resp.json().get("result", {}).get("hits", {}).get("hit", [])
+        for hit in hits:
             info = hit.get("info", {})
-            key = info.get("key", "")
             hit_title = (info.get("title") or "").rstrip(".")
             if _titles_match(title, hit_title):
-                return _parse_dblp_hit(info, key)
+                return {
+                    "source": "dblp",
+                    "request": last_req,
+                    "status": "ok",
+                    "response": hit if raw else info,
+                }
 
-    return None
-
-
-def _parse_dblp_hit(info: dict, key: str) -> SourceResult:
-    authors_raw = info.get("authors", {}).get("author", [])
-    if isinstance(authors_raw, dict):
-        authors_raw = [authors_raw]
-    authors = []
-    for a in authors_raw:
-        name = a.get("text", "") if isinstance(a, dict) else str(a)
-        name = re.sub(r"\s+\d{4}$", "", name)  # Remove trailing disambiguation year
-        if name:
-            authors.append(name)
-
-    year_s = info.get("year", "")
-    return SourceResult(
-        source="dblp",
-        title=(info.get("title") or "").rstrip("."),
-        authors=authors,
-        year=int(year_s) if year_s else None,
-        venue=info.get("venue", ""),
-        doi=info.get("doi"),
-        entry_type=info.get("type", ""),
-        extra={"dblp_key": key},
-    )
+    if last_error:
+        return _error("dblp", last_req, last_error)
+    return {"source": "dblp", "request": last_req, "status": "no_match"}
 
 
 # =============================================================================
-# Source: arXiv (Atom API — no extra dependency)
+# arXiv (Atom API)
 # =============================================================================
 
 _ARXIV_NS = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 
 
-def fetch_arxiv(client: httpx.Client, arxiv_id: str) -> SourceResult | None:
+def fetch_arxiv(client: httpx.Client, arxiv_id: str, *, raw: bool = False) -> SourceData:  # noqa: ARG001
     arxiv_id = arxiv_id.upper().removeprefix("ARXIV:").lower()
     if "v" in arxiv_id:
         arxiv_id = arxiv_id.rsplit("v", 1)[0]
 
+    url = "https://export.arxiv.org/api/query"
+    params = {"id_list": arxiv_id, "max_results": "1"}
+    req = {"url": url, "params": params}
+
     try:
-        resp = client.get("https://export.arxiv.org/api/query", params={"id_list": arxiv_id, "max_results": 1})
+        resp = client.get(url, params=params)
         resp.raise_for_status()
     except httpx.HTTPError as e:
-        return SourceResult(source="arxiv", error=str(e))
+        return _error("arxiv", req, str(e))
 
     root = ET.fromstring(resp.text)
     entry = root.find("atom:entry", _ARXIV_NS)
     if entry is None:
-        return None
+        return _error("arxiv", req, "no entry in response")
 
     entry_id = entry.findtext("atom:id", "", _ARXIV_NS)
     if "error" in entry_id.lower():
-        return None
+        return _error("arxiv", req, f"arxiv error: {entry_id}")
 
-    title = " ".join((entry.findtext("atom:title", "", _ARXIV_NS) or "").split())
+    # Extract structured data from XML (but don't normalize — keep close to source)
     authors = [
-        name
+        el.findtext("atom:name", "", _ARXIV_NS)
         for el in entry.findall("atom:author", _ARXIV_NS)
-        if (name := (el.findtext("atom:name", "", _ARXIV_NS) or "").strip())
     ]
-    published = entry.findtext("atom:published", "", _ARXIV_NS) or ""
-    year = int(published[:4]) if len(published) >= 4 else None
-
     categories = []
     for tag in ("arxiv:primary_category", "atom:category"):
         for el in entry.findall(tag, _ARXIV_NS):
             if (term := el.get("term")) and term not in categories:
                 categories.append(term)
 
-    return SourceResult(
-        source="arxiv",
-        title=title,
-        authors=authors,
-        year=year,
-        extra={"arxiv_id": arxiv_id, "categories": categories},
-    )
+    return {
+        "source": "arxiv",
+        "request": req,
+        "status": "ok",
+        "response": {
+            "id": entry_id,
+            "title": " ".join((entry.findtext("atom:title", "", _ARXIV_NS) or "").split()),
+            "authors": authors,
+            "published": entry.findtext("atom:published", "", _ARXIV_NS),
+            "updated": entry.findtext("atom:updated", "", _ARXIV_NS),
+            "summary": (entry.findtext("atom:summary", "", _ARXIV_NS) or "").strip(),
+            "categories": categories,
+            "comment": entry.findtext("arxiv:comment", None, _ARXIV_NS),
+        },
+    }
 
 
 # =============================================================================
-# Source: OpenReview (v1 search + v2 fallback)
+# OpenReview (v1 search + v2 fallback)
 # =============================================================================
 
 
@@ -327,311 +287,323 @@ def _or_val(content: dict, key: str) -> Any:
     return v.get("value") if isinstance(v, dict) else v
 
 
-def fetch_openreview(client: httpx.Client, title: str) -> SourceResult | None:
+def fetch_openreview(client: httpx.Client, title: str, *, raw: bool = False) -> SourceData:
     if not title:
-        return None
+        return _skipped("openreview", "no title")
 
-    # Try v1 first (better coverage for older papers), then v2
+    last_req: dict = {}
     for base in ("https://api.openreview.net", "https://api2.openreview.net"):
+        url = f"{base}/notes/search"
+        params = {"query": title, "limit": "5", "source": "forum"}
+        last_req = {"url": url, "params": params}
+
         try:
-            resp = client.get(f"{base}/notes/search", params={"query": title, "limit": 5, "source": "forum"})
-            resp.raise_for_status()
+            resp = _get(client, url, params=params)
+            if not resp:
+                continue
         except httpx.HTTPError:
             continue
 
         for note in resp.json().get("notes", []):
-            note_title = _or_val(note.get("content", {}), "title")
+            content = note.get("content", {})
+            note_title = _or_val(content, "title")
             if note_title and _titles_match(title, note_title):
-                return _parse_openreview_note(note)
+                if raw:
+                    response = note
+                else:
+                    response: dict[str, Any] = {}
+                    for key in ("title", "authors", "venue", "venueid", "_bibtex", "abstract", "keywords", "TL;DR"):
+                        val = _or_val(content, key)
+                        if val:
+                            response[key] = val
+                    response["id"] = note.get("id")
+                    response["forum"] = note.get("forum")
+                    response["invitation"] = (note.get("invitations") or [note.get("invitation")])[0]
+                    response["url"] = f"https://openreview.net/forum?id={note.get('id', '')}"
+                return {
+                    "source": "openreview",
+                    "request": last_req,
+                    "status": "ok",
+                    "response": response,
+                }
 
-    return None
-
-
-def _parse_openreview_note(note: dict) -> SourceResult:
-    content = note.get("content", {})
-    authors = _or_val(content, "authors") or []
-    if isinstance(authors, str):
-        authors = [authors]
-    venue = _or_val(content, "venue") or _or_val(content, "venueid") or ""
-
-    # Extract year from venue or invitation string
-    inv = (note.get("invitations") or [note.get("invitation", "")])[0] or ""
-    m = re.search(r"20\d{2}", f"{venue} {inv}")
-
-    return SourceResult(
-        source="openreview",
-        title=_or_val(content, "title") or "",
-        authors=authors,
-        year=int(m.group()) if m else None,
-        venue=venue,
-        url=f"https://openreview.net/forum?id={note.get('id', '')}",
-    )
+    return {"source": "openreview", "request": last_req, "status": "no_match"}
 
 
 # =============================================================================
-# Source: ACL Anthology
+# ACL Anthology
 # =============================================================================
 
 
-def fetch_acl(client: httpx.Client, acl_id: str) -> SourceResult | None:
+def fetch_acl(client: httpx.Client, acl_id: str, *, raw: bool = False) -> SourceData:  # noqa: ARG001
     if not acl_id:
-        return None
+        return _skipped("acl_anthology", "no acl_id")
+
+    url = f"https://aclanthology.org/{acl_id}.bib"
+    req = {"url": url}
+
     try:
-        resp = client.get(f"https://aclanthology.org/{acl_id}.bib", follow_redirects=True)
+        resp = client.get(url, follow_redirects=True)
         if resp.status_code == 404:
-            return None
+            return _error("acl_anthology", req, "not found")
         resp.raise_for_status()
     except httpx.HTTPError as e:
-        return SourceResult(source="acl_anthology", error=str(e))
-    return _parse_bibtex_str(resp.text.strip(), source="acl_anthology")
+        return _error("acl_anthology", req, str(e))
 
-
-def _parse_bibtex_str(bibtex: str, *, source: str) -> SourceResult:
-    """Regex-based BibTeX parser (good enough for single well-formed entries)."""
-
-    def extract(fld: str) -> str | None:
-        m = re.search(rf'{fld}\s*=\s*"([^"]*)"', bibtex)
-        if not m:
-            m = re.search(rf"{fld}\s*=\s*\{{([^}}]*)\}}", bibtex)
-        return m.group(1).strip() if m else None
-
-    author_str = extract("author")
-    authors = [x.strip() for x in re.split(r"\s+and\s+", author_str) if x.strip()] if author_str else []
-    year_str = extract("year")
-    type_m = re.match(r"@(\w+)\{", bibtex)
-
-    return SourceResult(
-        source=source,
-        bibtex=bibtex,
-        title=extract("title"),
-        authors=authors,
-        year=int(year_str) if year_str else None,
-        venue=extract("booktitle") or extract("journal"),
-        pages=extract("pages"),
-        volume=extract("volume"),
-        doi=extract("doi"),
-        url=extract("url"),
-        entry_type=type_m.group(1) if type_m else None,
-    )
+    # Return raw BibTeX — don't parse it into fields
+    return {
+        "source": "acl_anthology",
+        "request": req,
+        "status": "ok",
+        "response": {"bibtex": resp.text.strip()},
+    }
 
 
 # =============================================================================
 # Orchestrator
 # =============================================================================
 
-# (source_key, fetch_function, condition_field)
-# condition_field: which ResolvedPaper attr must be truthy to attempt this source.
-_SOURCES: list[tuple[str, Any, str]] = [
-    ("crossref", fetch_crossref, "doi"),
-    ("dblp", fetch_dblp, "title"),
-    ("arxiv", fetch_arxiv, "arxiv_id"),
-    ("openreview", fetch_openreview, "title"),
-    ("acl_anthology", fetch_acl, "acl_id"),
+# Source metadata: helps AI agents understand what each source provides and how to interpret it
+_SOURCE_META: dict[str, dict[str, str]] = {
+    "dblp": {
+        "description": "Bibliographic database. Provides venue short name, year, entry type, author disambiguation.",
+        "docs": "https://dblp.org/faq/How+to+use+the+dblp+search+API.html",
+        "key_fields": "venue, year, type, key, ee (external URL)",
+    },
+    "crossref": {
+        "description": "Publisher metadata via DOI. Provides container-title (journal/proceedings name), author with affiliations, page, volume.",
+        "docs": "https://api.crossref.org/swagger-ui/index.html",
+        "key_fields": "container-title, author, type, page, volume, publisher",
+    },
+    "openreview": {
+        "description": "Conference submission platform. Provides venue with acceptance type (Oral/Spotlight/Poster), BibTeX, keywords, reviews.",
+        "docs": "https://docs.openreview.net/reference/api-v1/notes/search",
+        "key_fields": "venue, venueid, _bibtex, keywords, invitation",
+    },
+    "acl_anthology": {
+        "description": "Authoritative source for ACL venues (ACL, EMNLP, NAACL, etc). Returns complete, copy-ready BibTeX.",
+        "docs": "https://aclanthology.org/info/contributing/",
+        "key_fields": "bibtex (complete @inproceedings with booktitle, pages, doi)",
+    },
+    "arxiv": {
+        "description": "Preprint server. Provides categories, submission/update dates, author comments. Least authoritative for published papers.",
+        "docs": "https://info.arxiv.org/help/api/index.html",
+        "key_fields": "categories, published, updated, comment",
+    },
+}
+
+# (name, fetch_fn, fields_from_ids) — first field is required, rest are optional
+_SOURCES: list[tuple[str, Any, tuple[str, ...]]] = [
+    ("dblp", fetch_dblp, ("title", "venue")),
+    ("crossref", fetch_crossref, ("doi",)),
+    ("openreview", fetch_openreview, ("title",)),
+    ("acl_anthology", fetch_acl, ("acl_id",)),
+    ("arxiv", fetch_arxiv, ("arxiv_id",)),
 ]
 
 ALL_SOURCES = [name for name, _, _ in _SOURCES]
 
 
-def fetch_all(paper_id: str, log: Console, *, sources: list[str] | None = None) -> dict[str, SourceResult]:
-    """Resolve paper ID, then fetch metadata from selected sources.
+def _extract_ids(s2_data: dict) -> dict[str, str | None]:
+    """Extract external IDs from S2 response into a flat lookup."""
+    ext = s2_data.get("externalIds") or {}
+    return {
+        "doi": ext.get("DOI"),
+        "arxiv_id": ext.get("ArXiv"),
+        "acl_id": ext.get("ACL"),
+        "title": s2_data.get("title"),
+        "venue": s2_data.get("venue"),
+    }
 
-    Args:
-        sources: Which sources to fetch from. None means all.
-    """
+
+def fetch_all(
+    paper_id: str, log: Console, *, sources: list[str] | None = None, raw: bool = False,
+) -> list[SourceData]:
+    """Resolve paper ID, then fetch from all applicable sources. Returns list of SourceData."""
     enabled = sources or ALL_SOURCES
-    results: dict[str, SourceResult] = {}
+    results: list[SourceData] = []
 
     with httpx.Client(timeout=30.0) as client:
         # Step 1: Resolve IDs via Semantic Scholar
         log.print(f"[dim]Resolving {paper_id} via Semantic Scholar…[/]")
-        resolved = resolve_s2(client, paper_id)
-        if not resolved:
-            log.print(f"[red]Paper not found: {paper_id}[/]")
+        s2 = resolve_s2(client, paper_id)
+        results.append(s2)
+
+        if s2["status"] != "ok":
+            log.print(f"[red]  Failed: {s2.get('error', 'unknown')}[/]")
             return results
 
-        log.print(
-            f"[dim]  DOI: {resolved.doi or '—'}  arXiv: {resolved.arxiv_id or '—'}  "
-            f"venue: {resolved.venue or '—'}  ACL: {resolved.acl_id or '—'}[/]"
-        )
-        log.print(f"[dim]  title: {(resolved.title or '—')[:80]}[/]")
+        ids = _extract_ids(s2["response"])
+        log.print(f"[dim]  → DOI={ids['doi'] or '—'}  arXiv={ids['arxiv_id'] or '—'}  "
+                  f"venue={ids['venue'] or '—'}  ACL={ids['acl_id'] or '—'}[/]")
         log.print()
 
-        results["semantic_scholar"] = SourceResult(
-            source="semantic_scholar",
-            title=resolved.title,
-            venue=resolved.venue,
-            doi=resolved.doi,
-            extra={"arxiv_id": resolved.arxiv_id, "dblp_id": resolved.dblp_id, "acl_id": resolved.acl_id},
-        )
-
         # Step 2: Fetch from each enabled source
-        for name, fetch_fn, cond_field in _SOURCES:
+        for name, fetch_fn, fields in _SOURCES:
             if name not in enabled:
+                results.append(_skipped(name, "disabled"))
                 log.print(f"  [dim]{name}: skipped (disabled)[/]")
                 continue
-            arg = getattr(resolved, cond_field, None)
-            if not arg:
-                log.print(f"  [dim]{name}: skipped (no {cond_field})[/]")
+
+            args = [ids.get(f) for f in fields]
+            if not args[0]:  # first field is required
+                results.append(_skipped(name, f"no {fields[0]}"))
+                log.print(f"  [dim]{name}: skipped (no {fields[0]})[/]")
                 continue
+
             log.print(f"  [dim]{name}: fetching…[/]", end="")
-            if name == "dblp":
-                result = fetch_fn(client, resolved.title, resolved.venue)
-            else:
-                result = fetch_fn(client, arg)
-            if result and result.error:
-                log.print(f" [red]error: {result.error}[/]")
-                results[name] = result
-            elif result:
+            result = fetch_fn(client, *args, raw=raw)
+            results.append(result)
+
+            status = result["status"]
+            if status == "ok":
                 log.print(" [green]ok[/]")
-                results[name] = result
-            else:
+            elif status == "no_match":
                 log.print(" [yellow]no match[/]")
+            else:
+                log.print(f" [red]{result.get('error', 'error')}[/]")
 
     return results
 
 
 # =============================================================================
-# Display: Rich table
+# Display: Rich (human-readable)
 # =============================================================================
 
-_DISPLAY_FIELDS = ["title", "authors", "year", "venue", "entry_type", "doi", "pages", "volume"]
+
+def _format_url(req: dict) -> str:
+    url = req.get("url", "")
+    params = req.get("params")
+    if params:
+        return url + "?" + "&".join(f"{k}={v}" for k, v in params.items())
+    return url
 
 
-def _format_cell(result: SourceResult, field_name: str) -> str:
-    """Format a single cell value for the comparison table."""
-    if result.error:
-        return "[dim]—[/]"
-    val = getattr(result, field_name, None)
-    if val is None:
-        return "[dim]—[/]"
-    if field_name == "authors" and isinstance(val, list):
-        display = ", ".join(val[:3])
-        if len(val) > 3:
-            display += f" (+{len(val) - 3})"
-        return display
-    return str(val)
+def _print_json(console: Console, data: Any) -> None:
+    """Print prettified JSON with syntax highlighting."""
+    console.print_json(json.dumps(data, ensure_ascii=False))
 
 
-def _compute_diffs(results: dict[str, SourceResult], sources: list[str]) -> list[str]:
-    """Compute field-level diffs between sources."""
-    diffs: list[str] = []
-
-    # Year + venue diffs
-    for f in ("year", "venue"):
-        vals = {}
-        for src in sources:
-            r = results[src]
-            v = getattr(r, f, None) if not r.error else None
-            if v is not None:
-                vals[src] = str(v)[:50]
-        if len(set(vals.values())) > 1:
-            diffs.append(f"  [yellow]{f}[/]: " + ", ".join(f"{s}={v}" for s, v in vals.items()))
-
-    # Title diff (ignore LaTeX braces)
-    title_vals = {src: results[src].title for src in sources if not results[src].error and results[src].title}
-    normalized = {s: re.sub(r"[{}]", "", t).strip() for s, t in title_vals.items() if t}
-    if len(set(normalized.values())) > 1:
-        diffs.append("  [yellow]title[/]: " + ", ".join(f"{s}={v[:50]}" for s, v in title_vals.items() if v))
-
-    # Author count diff
-    acounts = {src: len(results[src].authors) for src in sources if not results[src].error and results[src].authors}
-    if len(set(acounts.values())) > 1:
-        diffs.append("  [yellow]author_count[/]: " + ", ".join(f"{s}={n}" for s, n in acounts.items()))
-
-    return diffs
-
-
-def display_rich(results: dict[str, SourceResult], console: Console) -> None:
-    # Header: pick best title
-    title = next(
-        (results[s].title for s in (*ALL_SOURCES, "semantic_scholar") if s in results and results[s].title), None
-    )
-    s2 = results.get("semantic_scholar")
-
+def display_rich(results: list[SourceData], console: Console) -> None:
     console.print()
-    console.rule(f"[bold]{title or 'Unknown'}[/bold]")
+
+    # S2 is the ID resolver — show as preamble, not a regular source
+    s2 = results[0] if results and results[0]["source"] == "semantic_scholar" else None
+    sources = results[1:] if s2 else results
+
     if s2:
-        parts = []
-        if s2.extra.get("arxiv_id"):
-            parts.append(f"arXiv: {s2.extra['arxiv_id']}")
-        if s2.doi:
-            parts.append(f"DOI: {s2.doi}")
-        if s2.venue:
-            parts.append(f"S2 venue: {s2.venue}")
-        if parts:
-            console.print(f"  [dim]{' │ '.join(parts)}[/]")
-    console.print()
-
-    # Comparison table
-    sources = [s for s in ALL_SOURCES if s in results]
-    if not sources:
-        console.print("[yellow]No metadata sources returned results.[/]")
-        return
-
-    table = Table(show_header=True, header_style="bold", expand=True, show_lines=True)
-    table.add_column("Field", style="cyan", width=12)
-    for src in sources:
-        label = src.replace("_", " ").title()
-        if results[src].error:
-            label += " [red](err)[/]"
-        table.add_column(label, ratio=1)
-
-    for f in _DISPLAY_FIELDS:
-        values = [_format_cell(results[src], f) for src in sources]
-        if all(v == "[dim]—[/]" for v in values):
-            continue
-        non_empty = [v for v in values if v != "[dim]—[/]"]
-        has_diff = len(set(non_empty)) > 1
-        table.add_row(f"[bold yellow]{f}[/]" if has_diff else f, *values)
-
-    console.print(table)
-
-    # ACL BibTeX panel
-    acl = results.get("acl_anthology")
-    if acl and acl.bibtex:
+        if s2["status"] == "ok":
+            resp = s2.get("response", {})
+            console.print("[bold]Resolved via Semantic Scholar[/]")
+            console.print(f"  [dim]GET {_format_url(s2.get('request', {}))}[/]")
+            console.print()
+            console.print(f"  [cyan]title[/]:  {resp.get('title', '—')}")
+            console.print(f"  [cyan]venue[/]:  {resp.get('venue', '—')}")
+            ids = resp.get("externalIds", {})
+            for k, v in ids.items():
+                console.print(f"  [cyan]{k}[/]:  {v}")
+        else:
+            console.print(f"[bold red]Semantic Scholar: {s2.get('error', 'resolution failed')}[/]")
+            console.print(f"  [dim]GET {_format_url(s2.get('request', {}))}[/]")
         console.print()
-        console.print(Panel(acl.bibtex, title="BibTeX from ACL Anthology", border_style="green"))
 
-    # Diff summary
-    console.print()
-    diffs = _compute_diffs(results, sources)
-    if diffs:
-        console.print("[bold]Diffs:[/]")
-        for d in diffs:
-            console.print(d)
+    for data in sources:
+        status = data["status"]
+
+        if status == "skipped":
+            continue
+
+        name = data["source"]
+
+        if status == "ok":
+            console.rule(f"[bold green]{name}[/bold green]")
+        elif status == "no_match":
+            console.rule(f"[bold yellow]{name} (no match)[/bold yellow]")
+        else:
+            console.rule(f"[bold red]{name} (error)[/bold red]")
+
+        req = data.get("request", {})
+        if req:
+            console.print(f"  [dim]GET {_format_url(req)}[/]")
+
+        if data.get("error"):
+            console.print(f"\n  [red]{data['error']}[/]\n")
+            continue
+
+        resp = data.get("response", {})
+        if resp:
+            console.print()
+            _print_json(console, resp)
+
+        console.print()
+
+
+# =============================================================================
+# Display: JSON (for AI agents)
+# =============================================================================
+
+
+def _clean(d: Any) -> Any:
+    """Strip None values recursively for cleaner JSON output."""
+    if isinstance(d, dict):
+        return {k: _clean(v) for k, v in d.items() if v is not None}
+    if isinstance(d, list):
+        return [_clean(x) for x in d]
+    return d
+
+
+def _inject_meta(results: list[SourceData]) -> list[SourceData]:
+    """Add source metadata (description, docs, key_fields) to each result."""
+    enriched = []
+    for data in results:
+        name = data.get("source", "")
+        meta = _SOURCE_META.get(name)
+        if meta and data.get("status") not in ("skipped",):
+            data = {**data, "_meta": meta}
+        enriched.append(data)
+    return enriched
+
+
+def display_json(results: list[SourceData]) -> None:
+    """JSON output with source metadata for AI agents."""
+    enriched = _inject_meta(results)
+    print(json.dumps(_clean(enriched), indent=2, ensure_ascii=False))
+
+
+def display_raw(results: list[SourceData], source_name: str) -> None:
+    """Structured output for --raw: S2 resolution + the one requested source + schema."""
+    s2 = results[0] if results and results[0]["source"] == "semantic_scholar" else None
+    target = next((r for r in results if r["source"] == source_name and r["status"] != "skipped"), None)
+
+    output: dict[str, Any] = {}
+
+    if s2 and s2["status"] == "ok":
+        resp = s2["response"]
+        output["resolved"] = {
+            "title": resp.get("title"),
+            "venue": resp.get("venue"),
+            "ids": resp.get("externalIds"),
+        }
+
+    if target:
+        meta = _SOURCE_META.get(source_name, {})
+        output["api"] = {
+            "endpoint": target.get("request", {}).get("url"),
+            "params": target.get("request", {}).get("params"),
+            "docs": meta.get("docs"),
+            "description": meta.get("description"),
+            "key_fields": meta.get("key_fields"),
+        }
+        output["status"] = target["status"]
+        if target.get("error"):
+            output["error"] = target["error"]
+        if target.get("response"):
+            output["response"] = target["response"]
     else:
-        console.print("[green]No diffs between sources.[/]")
+        output["status"] = "unavailable"
+        output["error"] = f"Could not fetch from {source_name} (missing required ID)"
 
-
-# =============================================================================
-# Display: JSON
-# =============================================================================
-
-_JSON_FIELDS = (
-    "source",
-    "title",
-    "authors",
-    "year",
-    "venue",
-    "entry_type",
-    "doi",
-    "url",
-    "pages",
-    "volume",
-    "number",
-    "extra",
-    "error",
-    "bibtex",
-)
-
-
-def display_json(results: dict[str, SourceResult]) -> None:
-    out = {}
-    for name, r in results.items():
-        d = {f: getattr(r, f) for f in _JSON_FIELDS}
-        d = {k: v for k, v in d.items() if v}  # Drop None/empty
-        out[name] = d
-    print(json.dumps(out, indent=2, ensure_ascii=False))
+    print(json.dumps(_clean(output), indent=2, ensure_ascii=False))
 
 
 # =============================================================================
@@ -641,27 +613,74 @@ def display_json(results: dict[str, SourceResult]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch paper metadata from multiple sources and compare",
-        epilog="Sources: Semantic Scholar, CrossRef, DBLP, arXiv, OpenReview, ACL Anthology",
+        description="Fetch paper metadata from multiple academic sources and present raw results.\n"
+        "Resolves paper IDs via Semantic Scholar, then queries each source independently.\n"
+        "No normalization or judgment — raw data for human or AI agent decision-making.",
+        epilog=(
+            "examples:\n"
+            "  %(prog)s 2010.11929                         # arXiv ID → fetch all sources\n"
+            "  %(prog)s 10.18653/v1/N19-1423                # DOI → fetch all sources\n"
+            "  %(prog)s --json 1706.03762                   # JSON for piping to AI agent\n"
+            "  %(prog)s --sources dblp,arxiv 2010.11929     # only specific sources\n"
+            "  %(prog)s --raw crossref 10.18653/v1/N19-1423 # full raw CrossRef API response\n"
+            "\n"
+            "sources (in display order):\n"
+            "  dblp           bibliographic DB — venue, year, type, author disambiguation\n"
+            "  crossref       publisher metadata via DOI — container-title, author, page, volume\n"
+            "  openreview     conference submissions — venue+acceptance type, BibTeX, keywords\n"
+            "  acl_anthology  authoritative ACL venue BibTeX (ACL, EMNLP, NAACL, etc.)\n"
+            "  arxiv          preprint metadata — categories, dates, comments (least authoritative)\n"
+            "\n"
+            "environment variables:\n"
+            "  SEMANTIC_SCHOLAR_API_KEY  higher rate limits for S2 ID resolution\n"
+            "  CROSSREF_EMAIL           polite pool with better rate limits (any valid email)"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("paper_id", help="arXiv ID (2010.11929), DOI (10.xxx/yyy), or Semantic Scholar ID")
-    parser.add_argument("--json", action="store_true", help="Output as JSON (for piping to AI agents)")
     parser.add_argument(
-        "--sources", help=f"Comma-separated sources to fetch (default: all). Choices: {','.join(ALL_SOURCES)}"
+        "paper_id",
+        help="paper identifier: arXiv ID (2010.11929), DOI (10.18653/v1/N19-1423), "
+        "or Semantic Scholar ID (ARXIV:2010.11929, DOI:10.xxx, CorpusId:12345)",
+    )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="output as JSON array. each element has: source, status (ok|no_match|error|skipped), "
+        "request ({url, params} — reproducible via GET), response (source-specific raw data), "
+        "and _meta ({description, docs, key_fields} per source). "
+        "first element is always semantic_scholar (ID resolver)",
+    )
+    parser.add_argument(
+        "--sources",
+        help=f"comma-separated list of sources to query (default: all). choices: {','.join(ALL_SOURCES)}",
+    )
+    parser.add_argument(
+        "--raw", metavar="SOURCE",
+        help="fetch full unfiltered API response from one source as JSON. "
+        "output: {resolved (title/venue/ids from S2), api (endpoint/params/docs — "
+        "reproducible via GET endpoint?params), status, response (raw API body)}. "
+        f"choices: {','.join(ALL_SOURCES)}",
     )
     args = parser.parse_args()
 
     sources = None
-    if args.sources:
+    raw = False
+    if args.raw:
+        if args.raw not in ALL_SOURCES:
+            parser.error(f"Unknown source: {args.raw}. Choose from: {', '.join(ALL_SOURCES)}")
+        sources = [args.raw]
+        raw = True
+    elif args.sources:
         sources = [s.strip() for s in args.sources.split(",")]
         invalid = [s for s in sources if s not in ALL_SOURCES]
         if invalid:
             parser.error(f"Unknown sources: {', '.join(invalid)}. Choose from: {', '.join(ALL_SOURCES)}")
 
     log = Console(stderr=True)
-    results = fetch_all(args.paper_id, log, sources=sources)
+    results = fetch_all(args.paper_id, log, sources=sources, raw=raw)
 
-    if args.json:
+    if raw:
+        display_raw(results, args.raw)
+    elif args.json:
         display_json(results)
     else:
         display_rich(results, Console())
