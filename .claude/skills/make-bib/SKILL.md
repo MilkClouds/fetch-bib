@@ -1,3 +1,8 @@
+---
+name: make-bib
+description: Generate accurate BibTeX for a paper by fetching metadata from multiple academic sources
+---
+
 # make-bib: Generate accurate BibTeX for a paper
 
 $ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, or title in quotes
@@ -5,8 +10,8 @@ $ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, or title in quotes
 ## Steps
 
 1. **Fetch metadata** using `paper_sources.py`.
-   - ID input: `uv run paper_sources.py fetch --json <paper_id>`
-   - Title input: `uv run paper_sources.py search s2 -t "<title>" --json` to find the paper, then fetch.
+   - ID input: `uv run scripts/paper_sources.py fetch --json <paper_id>`
+   - Title input: `uv run scripts/paper_sources.py search s2 -t "<title>" --json` to find the paper, then fetch.
    - Use `search` and `fetch` subcommands flexibly as needed.
 
 2. **Read `bibstyle.toml`** from the project root. If missing, ask the user about their preferences via `AskUserQuestion` and create it. See the schema below.
@@ -17,7 +22,6 @@ $ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, or title in quotes
    - Venue precedence: Journal > Conference > Workshop > arXiv
    - Protect proper nouns/acronyms in titles: `{BERT}`, `{B}ayesian` — don't over-brace.
    - Authors: `Last, First and Last, First`. Remove DBLP disambiguation numbers.
-   - Title source priority: DBLP > arXiv > CrossRef. Strip trailing periods.
    - ACL Anthology BibTeX is authoritative for ACL venues.
 
 4. Output ONLY the BibTeX entry.
