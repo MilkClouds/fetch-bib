@@ -34,11 +34,11 @@ When a user enters `https://doi.org/10.1234/abcd` in a browser, this service det
 
 ### 2.1 CrossRef
 
-**What it is:** A nonprofit membership organization with over 24,000 member institutions (publishers, universities, libraries, government agencies) across 165 countries.
+**What it is:** A nonprofit membership organization of publishers, universities, libraries, and government agencies worldwide.
 
 **Role:** Issues DOIs for scholarly publications, stores metadata, and provides it via APIs. Covers all disciplines and geographies.
 
-**How data enters:** Publishers directly deposit their own metadata. CrossRef does not curate or verify the data — it stores what publishers submit.
+**How data enters:** Publishers directly deposit their own metadata. Crossref stores and distributes member-submitted metadata; per its own documentation, it does not generally curate or correct this data.
 
 **Quality characteristics:** Metadata accuracy depends entirely on the submitting publisher. Large publishers (Elsevier, Springer) typically submit clean metadata, but smaller publishers and societies frequently have missing page numbers, inconsistent author name formatting, or incomplete dates. CrossRef does not enforce completeness beyond minimal requirements.
 
@@ -53,7 +53,7 @@ When a user enters `https://doi.org/10.1234/abcd` in a browser, this service det
 **How data enters:**
 
 - *Venue selection:* The DBLP Steering Committee defines minimum standards for indexing (CS focus, serious peer review, DOI registration, openly accessible metadata on the web).
-- *Paper ingestion:* Once a venue is selected, individual papers are collected semi-automatically from publisher websites and metadata APIs. An editorial team then reviews for quality. Over 500,000 new publications are added per year, and over 75,000 errors are manually corrected annually.
+- *Paper ingestion:* Once a venue is selected, individual papers are collected semi-automatically from publisher websites and metadata APIs. An editorial team then reviews for quality, correcting errors, filling in missing metadata, and disambiguating authors.
 
 **Quality characteristics:** A small, dedicated editorial team curates CS publications exclusively. Author disambiguation, venue name normalization, and booktitle standardization are handled systematically.
 
@@ -81,7 +81,7 @@ Operated by AI2 (Allen Institute for AI). Covers multiple disciplines beyond CS,
 
 ### 2.5 Google Scholar
 
-A general-purpose academic search engine with the broadest coverage but the least reliable BibTeX metadata. Booktitles are frequently incorrect or inconsistent, and journal names may be wrong. Not recommended as a primary source for BibTeX entries.
+A general-purpose academic search engine with the broadest coverage but the least reliable BibTeX metadata. Booktitles are frequently incorrect or inconsistent, and journal names may be wrong. Coverage is wide but metadata normalization is inconsistent, making it unsuitable as a primary BibTeX source.
 
 
 ## 3. Field-Specific Anthologies and Specialized Databases
@@ -169,9 +169,9 @@ If the venue information from Step 1 looks plausible but needs confirmation, or 
 
 | Source | Scope | Notes |
 |---|---|---|
-| OpenReview | ICLR, NeurIPS, COLM, and other venues using the platform | Accept/reject decisions are recorded directly in the review process. The most authoritative source for conferences that use it. |
+| OpenReview | ICLR, NeurIPS, COLM, and other venues using the platform | For conferences that use OpenReview as their official review system, accept/reject decisions are recorded directly in the review process, making it the most direct source for acceptance status. |
 | Conference website | Any conference | Official accepted paper lists posted by program chairs. Authoritative but sometimes taken down after the event. |
-| DBLP | CS | If a paper appears under a venue in DBLP, it was accepted there. Reliable but may lag behind by weeks or months after the conference. |
+| DBLP | CS | If a paper appears under a venue's proceedings/journal issue in DBLP, it is generally safe to treat it as an official publication record for that venue. Reliable but may lag behind by weeks or months after the conference. |
 | ACL Anthology / PMLR | NLP / ML | Presence in these archives confirms acceptance. |
 
 ### Step 3: Fallback Indicators
@@ -209,8 +209,8 @@ Use when Tier 1 sources are inconvenient or for bulk processing.
 **DBLP (CS)**
 The most reliable Tier 2 source for CS. BibTeX is usable as-is in most cases. Always check for disambiguation number suffixes in author names.
 
-**CrossRef (non-CS, or when absent from DBLP)**
-Useful for confirming formal publication status and DOIs across all disciplines. BibTeX formatting may need cleanup.
+**CrossRef (all disciplines)**
+The primary source for confirming formal publication status and DOIs. Metadata completeness depends on what publishers deposit — large publishers typically submit clean records, but smaller ones may have gaps (missing pages, incomplete dates). Useful as a metadata fallback when Tier 1 or DBLP is unavailable, but BibTeX formatting may need cleanup.
 
 ### 7.3 Tier 3: Discovery Platforms
 
@@ -220,32 +220,40 @@ Useful for finding papers quickly. BibTeX obtained from these sources must alway
 |---|---|
 | Semantic Scholar | Multi-discipline coverage; frequent metadata errors |
 | Google Scholar | Broadest coverage; lowest BibTeX quality |
-| OpenReview | Authoritative for acceptance status; incomplete BibTeX metadata |
+
+Note: OpenReview is not listed here. It is a review management platform, not a discovery tool. For its role in acceptance verification, see Section 6.
 
 ### 7.4 Unpublished Papers (arXiv Only)
 
 For papers not yet formally published, use arXiv's own BibTeX with `journal={arXiv preprint arXiv:XXXX.XXXXX}`. Do not present unpublished papers as conference publications.
 
+### 7.5 DOI Does Not Guarantee Complete Metadata
+
+A DOI confirms formal publication, but not metadata completeness. Crossref defines required, recommended, and optional fields per record type — page numbers, funding info, ORCID, and event metadata may all be absent even when a valid DOI exists. Always verify key fields regardless of DOI presence.
+
 
 ## 8. Practical Workflow
 
+Publication status verification and BibTeX retrieval are separate tasks with different optimal sources. The workflow below addresses both in sequence.
+
 ### 8.1 Process
 
-1. Determine whether the paper is formally published (check OpenReview, DBLP, or CrossRef).
-2. If formally published: obtain BibTeX from a Tier 1 source (publisher page or anthology).
-3. If Tier 1 is impractical: use DBLP (CS) or CrossRef as a fallback.
+1. Determine whether the paper has a formal publication. Check the field's authoritative source first (e.g., ACL Anthology for NLP, PMLR for ML, ACM DL for ACM venues). For conferences using OpenReview (ICLR, NeurIPS, COLM), check acceptance status there. Fall back to DBLP, then CrossRef/DOI.
+2. If formally published: obtain BibTeX from the publisher page or field-specific anthology (Tier 1).
+3. If Tier 1 is impractical: use DBLP (CS) or CrossRef (other fields) as a metadata fallback.
 4. If unpublished: use arXiv BibTeX and explicitly mark it as a preprint.
-5. Run a final manual review before submission.
+5. Run a final manual review before submission (see checklist below).
 
 ### 8.2 Pre-Submission Checklist
 
-Regardless of where BibTeX was obtained, verify the following before submitting:
+Regardless of where BibTeX was obtained, verify the following before submitting. Note that correct metadata and correct citation style are separate concerns — even accurate metadata may need formatting adjustments (title capitalization, proceedings title abbreviation, BibTeX key naming) to match the target venue's style requirements.
 
 - No DBLP disambiguation numbers remain in author names
 - Venue names are correct (workshop papers marked as workshops)
 - Publication year is accurate
 - Page numbers, volume, and DOI are present where applicable
 - No arXiv-cited papers have since been formally published
+- Title capitalization and proceedings name formatting match target venue style
 
 ### 8.3 Automation: Rebiber
 
