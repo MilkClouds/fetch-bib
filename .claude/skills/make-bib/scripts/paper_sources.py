@@ -415,9 +415,7 @@ def fetch_acl(client: httpx.Client, acl_id: str, *, raw: bool = False) -> Source
 def search_dblp(client: httpx.Client, title: str) -> SourceData:
     """Search DBLP by title. Returns all hits — does NOT pick one."""
     url = "https://dblp.org/search/publ/api"
-    # Quote the title for exact phrase matching in DBLP search
-    quoted_title = f'"{title}"' if '"' not in title else title
-    params = {"q": quoted_title, "format": "json", "h": 10}
+    params = {"q": title, "format": "json", "h": 10}
     req = {"url": url, "params": params}
 
     try:
