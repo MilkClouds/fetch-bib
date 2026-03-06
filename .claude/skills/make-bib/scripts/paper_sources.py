@@ -827,6 +827,7 @@ def _format_url(req: dict) -> str:
     params = req.get("params")
     if params:
         from urllib.parse import urlencode
+
         return url + "?" + urlencode(params)
     return url
 
