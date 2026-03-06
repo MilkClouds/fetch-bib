@@ -7,7 +7,7 @@ description: Generate accurate BibTeX for a paper by fetching metadata from mult
 
 $ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, title in quotes, or abbreviation (e.g. "ResNet")
 
-The script is at `scripts/paper_sources.py` (run via `uv run scripts/paper_sources.py`).
+The script is at `${CLAUDE_SKILL_DIR}/scripts/paper_sources.py` (run via `uv run ${CLAUDE_SKILL_DIR}/scripts/paper_sources.py`).
 
 ## Steps
 
