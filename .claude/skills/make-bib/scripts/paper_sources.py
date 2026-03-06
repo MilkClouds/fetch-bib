@@ -69,9 +69,7 @@ class PaperId:
             )
         type_str, value = s.split(":", 1)
         if type_str not in _PAPER_ID_TYPES:
-            raise ValueError(
-                f"Unknown type {type_str!r}. Expected one of {_PAPER_ID_TYPES}"
-            )
+            raise ValueError(f"Unknown type {type_str!r}. Expected one of {_PAPER_ID_TYPES}")
         if not value:
             raise ValueError("Empty value after prefix")
         # Strip arXiv version suffix (e.g. "1706.03762v7" → "1706.03762")
@@ -92,8 +90,13 @@ class PaperId:
     def to_ids(self) -> dict[str, str | None]:
         """Extract known IDs directly from the parsed input (no API call)."""
         ids: dict[str, str | None] = {
-            "doi": None, "arxiv_id": None, "acl_id": None,
-            "dblp_key": None, "openreview_id": None, "title": None, "venue": None,
+            "doi": None,
+            "arxiv_id": None,
+            "acl_id": None,
+            "dblp_key": None,
+            "openreview_id": None,
+            "title": None,
+            "venue": None,
         }
         match self.type:
             case "arxiv":
@@ -243,7 +246,6 @@ _ARXIV_NS = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/s
 
 
 def fetch_arxiv(client: httpx.Client, arxiv_id: str, *, raw: bool = False) -> SourceData:
-
     url = "https://export.arxiv.org/api/query"
     params = {"id_list": arxiv_id, "max_results": "1"}
     req = {"url": url, "params": params}
