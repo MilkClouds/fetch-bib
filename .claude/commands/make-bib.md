@@ -4,15 +4,12 @@ $ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, or title in quotes
 
 ## Steps
 
-1. **Fetch**: `uv run paper_sources.py fetch --json <paper_id>`
-   - For titles: `uv run paper_sources.py search s2 -t "<title>" --json` first, then fetch by best match.
+1. **Fetch metadata** using `paper_sources.py`.
+   - ID input: `uv run paper_sources.py fetch --json <paper_id>`
+   - Title input: `uv run paper_sources.py search s2 -t "<title>" --json` to find the paper, then fetch.
+   - Use `search` and `fetch` subcommands flexibly as needed — e.g. search specific sources, fetch with `--sources`, re-search if initial results are insufficient.
 
-2. **Resolve conflicts with `AskUserQuestion`** — never silently pick one side.
-   - Venue ambiguity (workshop vs main conference, preprint vs published)
-   - Conflicting venue names, titles, or years across sources
-   - Provide 2–4 options with `label` + `description` showing the trade-off.
-
-3. **Generate BibTeX** applying these conventions:
+2. **Generate BibTeX** from the aggregated data, applying these conventions. When sources conflict or data is ambiguous, use `AskUserQuestion` (2–4 options with `label` + `description`) — never silently pick one side.
 
    **Venue precedence** (default): Journal > Conference > Workshop > arXiv
 
@@ -30,4 +27,4 @@ $ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, or title in quotes
 
    **Authoritative sources**: ACL Anthology BibTeX for ACL venues. OpenReview `_bibtex` is useful but verify.
 
-4. Output ONLY the BibTeX entry.
+3. Output ONLY the BibTeX entry.
