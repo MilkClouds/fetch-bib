@@ -5,26 +5,60 @@ description: Generate accurate BibTeX for a paper by fetching metadata from mult
 
 # make-bib: Generate accurate BibTeX for a paper
 
-$ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, or title in quotes
+$ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, title in quotes, or abbreviation (e.g. "ResNet")
+
+The script is at `scripts/paper_sources.py` (run via `uv run scripts/paper_sources.py`).
 
 ## Steps
 
-1. **Fetch metadata** using `paper_sources.py`.
-   - ID input: `uv run scripts/paper_sources.py fetch --json <paper_id>`
-   - Title input: `uv run scripts/paper_sources.py search s2 -t "<title>" --json` to find the paper, then fetch.
-   - Use `search` and `fetch` subcommands flexibly as needed.
+1. **Find the venue.** If a venue exists, failing to find it is unacceptable.
 
-2. **Read `bibstyle.toml`** from the project root. If missing, ask the user about their preferences via `AskUserQuestion` and create it. See the schema below.
+   **Phase A — Obtain ID:** Get at least one paper ID and the canonical title.
+   - ID input (`arxiv:`, `doi:`, `openreview:`): use directly.
+   - Title/abbreviation input: `search s2 "<query>"` → if multiple candidates, use `AskUserQuestion` to let the user pick → obtain ID.
 
-3. **Generate BibTeX** from the aggregated data, following `bibstyle.toml`. When sources conflict or data is ambiguous, use `AskUserQuestion` (2–4 options with `label` + `description`) — never silently pick one side.
+   **Phase B — Confirm venue:** Determine the highest-priority venue.
+   - `fetch --json <ID>` → check S2 `venue` and `externalIds`.
+   - If venue is a clear journal/conference (e.g. "Nature", "NeurIPS", "CVPR"): confirmed.
+   - If venue is arXiv, empty, or ambiguous: cross-search by title:
+     - `search openreview "<title>"` — check for conference/workshop acceptance
+     - `search dblp "<title>"` — check for DBLP listing
+     - If multiple or ambiguous results, use `AskUserQuestion` to let the user pick.
+     - If a published version is found, record that source's ID (e.g. `openreview:xxx`).
+     - If nothing found after all searches: confirmed as arXiv preprint.
+   - Use `fetch` and `search` as many times as needed. Be thorough.
 
-   **Hard rules** (not configurable):
-   - Venue precedence: Journal > Conference > Workshop > arXiv
-   - Protect proper nouns/acronyms in titles: `{BERT}`, `{B}ayesian` — don't over-brace.
-   - Authors: `Last, First and Last, First`. Remove DBLP disambiguation numbers.
-   - ACL Anthology BibTeX is authoritative for ACL venues.
+2. **Generate BibTeX from a single source of truth** — never mix fields from multiple sources.
+   Pick the first matching official source and use it exclusively:
+   - **OpenReview `_bibtex`**: If an OpenReview ID was found, `fetch openreview:<id>` → use the `_bibtex` field.
+   - **ACL Anthology**: If the DOI starts with `10.18653/`, fetch the ACL Anthology BibTeX.
+   - **arXiv**: If the paper is an arXiv preprint, `fetch arxiv:<id>` → construct from arXiv metadata.
+   If an official source is used, go to step 4. Otherwise go to step 3.
 
-4. Output ONLY the BibTeX entry.
+3. **Fallback: construct BibTeX with human verification.** Use DBLP, CrossRef, and other aggregators as reference data. Present all available source data, and use `AskUserQuestion` (2–4 options with `label` + `description`) for every ambiguous field. Add a BibTeX comment:
+   ```
+   % NOTE: not from official source — double-check
+   ```
+
+4. **Apply `bibstyle.toml`** from the project root. If missing, ask via `AskUserQuestion` and create it. See schema below. Reformat the BibTeX to match user preferences (fields, venue style, author limits, key format, etc.).
+
+5. **Annotate** the BibTeX with a comment above the entry:
+   ```
+   % source: <paper_id> via <source_name>
+   ```
+   Examples:
+   - `% source: openreview:0JtNyaHbNx via openreview` — OpenReview `_bibtex`
+   - `% source: doi:10.18653/v1/N19-1423 via acl_anthology` — ACL Anthology BibTeX
+   - `% source: dblp:conf/cvpr/HeZRS16 via dblp` — DBLP (fallback)
+   - `% source: doi:10.1038/nature14539 via crossref` — CrossRef (fallback)
+   - `% source: arxiv:1706.03762 via arxiv` — arXiv metadata
+
+6. Output ONLY the annotated BibTeX entry.
+
+**Hard rules**:
+- Venue precedence: Journal > Conference > Workshop > arXiv
+- Protect proper nouns/acronyms: `{BERT}`, `{B}ayesian` — don't over-brace.
+- Authors: `Last, First and Last, First`. Remove DBLP disambiguation numbers.
 
 ## `bibstyle.toml` schema and defaults
 

@@ -403,30 +403,59 @@ def search_dblp(client: httpx.Client, title: str) -> SourceData:
 
 
 def search_openreview(client: httpx.Client, title: str) -> SourceData:
-    """Search OpenReview by title. Returns all matching notes — does NOT pick one."""
-    last_req: dict = {}
-    for base in ("https://api.openreview.net", "https://api2.openreview.net"):
+    """Search OpenReview by title. Queries both API v1 and v2, returns all results."""
+    endpoints = [
+        ("https://api2.openreview.net", "v2"),
+        ("https://api.openreview.net", "v1"),
+    ]
+    all_hits: list[dict] = []
+    requests: list[dict] = []
+
+    for base, version in endpoints:
         url = f"{base}/notes/search"
         params = {"query": title, "limit": "10", "source": "forum"}
-        last_req = {"url": url, "params": params}
+        req = {"url": url, "params": params, "api": version}
 
         try:
             resp = _get(client, url, params=params)
-            if not resp:
-                continue
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            req["error"] = str(e)
+            requests.append(req)
             continue
 
-        results = [_or_note_to_dict(note, raw=False) for note in resp.json().get("notes", [])]
-        return {
-            "source": "openreview",
-            "request": last_req,
-            "status": "ok",
-            "match_type": "search",
-            "response": {"query": title, "total": len(results), "hits": results},
-        }
+        if not resp:
+            req["error"] = "no response"
+            requests.append(req)
+            continue
 
-    return _error("openreview", last_req, "could not reach OpenReview API")
+        notes = resp.json().get("notes", [])
+        req["result_count"] = len(notes)
+        requests.append(req)
+        for note in notes:
+            hit = _or_note_to_dict(note, raw=False)
+            hit["_api"] = version
+            all_hits.append(hit)
+
+    # Deduplicate by forum ID
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for hit in all_hits:
+        fid = hit.get("id") or hit.get("forum", "")
+        if fid and fid in seen:
+            continue
+        seen.add(fid)
+        unique.append(hit)
+
+    if not unique:
+        return _error("openreview", requests, "no results from any endpoint")
+
+    return {
+        "source": "openreview",
+        "request": requests,
+        "status": "ok",
+        "match_type": "search",
+        "response": {"query": title, "total": len(unique), "hits": unique},
+    }
 
 
 def search_crossref(client: httpx.Client, title: str) -> SourceData:
@@ -723,7 +752,7 @@ def search_one(
             if not search_title:
                 log.print(
                     "[red]  No title available for search. "
-                    "Provide a paper ID that S2 can resolve, or use --title for direct title search.[/]"
+                    "Provide a paper ID that S2 can resolve, or pass a plain title instead.[/]"
                 )
                 return results
 
@@ -747,6 +776,22 @@ def _format_url(req: dict) -> str:
     if params:
         return url + "?" + "&".join(f"{k}={v}" for k, v in params.items())
     return url
+
+
+def _format_request(req: dict | list, console: Console) -> None:
+    """Print request info, handling both single dict and list of requests."""
+    if isinstance(req, list):
+        for r in req:
+            line = f"GET {_format_url(r)}"
+            cnt = r.get("result_count")
+            err = r.get("error")
+            if cnt is not None:
+                line += f"  → {cnt} results"
+            if err:
+                line += f"  → {err}"
+            console.print(f"  [dim]{line}[/]")
+    elif req:
+        console.print(f"  [dim]GET {_format_url(req)}[/]")
 
 
 def _print_json(console: Console, data: Any) -> None:
@@ -792,8 +837,7 @@ def display_rich(results: list[SourceData], console: Console) -> None:
             console.rule(f"[bold red]{name} (error)[/bold red]")
 
         req = data.get("request", {})
-        if req:
-            console.print(f"  [dim]GET {_format_url(req)}[/]")
+        _format_request(req, console)
 
         if data.get("error"):
             console.print(f"\n  [red]{data['error']}[/]\n")
@@ -829,8 +873,7 @@ def display_search(results: list[SourceData], console: Console) -> None:
 
         console.rule(f'[bold green]{name}[/bold green]  [dim]search: "{query}"  ({len(hits)} results)[/]')
         req = data.get("request", {})
-        if req:
-            console.print(f"  [dim]GET {_format_url(req)}[/]")
+        _format_request(req, console)
         console.print()
 
         if not hits:
@@ -997,21 +1040,14 @@ def fetch(
 @app.command()
 def search(
     source: Annotated[SearchSource, typer.Argument(help="search source")],
-    query: Annotated[str, typer.Argument(help="arxiv:ID / doi:ID / openreview:ID, or title with --title")],
-    title: Annotated[
-        bool, typer.Option("--title", "-t", help="treat query as a plain title (skip S2 ID resolution)")
-    ] = False,
+    query: Annotated[str, typer.Argument(help="arxiv:ID, doi:ID, openreview:ID, or plain title")],
     json_output: Annotated[bool, typer.Option("--json", help="output as JSON array with _meta per source")] = False,
 ) -> None:
-    """Search a single source by title. By default resolves paper ID to title via S2."""
+    """Search a single source. Auto-detects paper ID (type:value) vs plain title."""
     log = Console(stderr=True)
-    if not title:
-        try:
-            PaperId.parse(query)  # validate format
-        except ValueError as e:
-            typer.echo(f"Error: {e}\nUse --title/-t for plain title search.", err=True)
-            raise typer.Exit(1) from None
-    results = search_one(source.value, query, log, title=title)
+    # Auto-detect: if query has a valid type prefix, treat as ID; otherwise as title
+    is_title = ":" not in query or query.split(":", 1)[0] not in _PAPER_ID_TYPES
+    results = search_one(source.value, query, log, title=is_title)
     if json_output:
         display_json(results)
     else:
