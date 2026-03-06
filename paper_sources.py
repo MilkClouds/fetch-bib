@@ -4,6 +4,7 @@
 # dependencies = [
 #     "httpx",
 #     "rich",
+#     "typer",
 #     "python-dotenv",
 # ]
 # ///
@@ -15,17 +16,18 @@ Run with --help for full usage, source descriptions, and output format details.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
 import sys
 import time
 import xml.etree.ElementTree as ET
-from typing import Any
+from enum import Enum
+from typing import Annotated, Any, Optional
 from urllib.parse import quote
 
 import httpx
+import typer
 from dotenv import load_dotenv
 from rich.console import Console
 
@@ -671,10 +673,16 @@ def fetch_all(
 
 def search_one(
     source: str,
-    paper_id: str,
+    query: str,
     log: Console,
+    *,
+    title: bool = False,
 ) -> list[SourceData]:
-    """Search a single source by title. Resolves paper_id to title first."""
+    """Search a single source by title.
+
+    If title=True, query is used directly as the search title.
+    Otherwise, query is treated as a paper ID and resolved to a title via S2.
+    """
     search_fn = _SEARCH_SOURCES.get(source)
     if not search_fn:
         return [_error(source, {}, f"unknown search source: {source}")]
@@ -682,19 +690,22 @@ def search_one(
     results: list[SourceData] = []
 
     with httpx.Client(timeout=30.0) as client:
-        s2, ids = _resolve_ids(client, paper_id, log)
-        results.append(s2)
-
-        title = ids.get("title")
-        if not title:
-            log.print(
-                "[red]  No title available for search. "
-                "Provide a paper ID that S2 can resolve, or a DOI for CrossRef title lookup.[/]"
-            )
-            return results
+        if title:
+            search_title = query
+            log.print(f'[dim]Searching by title: "{search_title}"[/]\n')
+        else:
+            s2, ids = _resolve_ids(client, query, log)
+            results.append(s2)
+            search_title = ids.get("title")
+            if not search_title:
+                log.print(
+                    "[red]  No title available for search. "
+                    "Provide a paper ID that S2 can resolve, or use --title for direct title search.[/]"
+                )
+                return results
 
         log.print(f"  [dim]{source}: searching…[/]", end="")
-        result = search_fn(client, title)
+        result = search_fn(client, search_title)
         results.append(result)
         n = result.get("response", {}).get("total", 0) if result["status"] == "ok" else 0
         log.print(f" [green]{n} results[/]" if result["status"] == "ok" else " [red]error[/]")
@@ -912,123 +923,84 @@ def display_raw(results: list[SourceData], source_name: str) -> None:
 # =============================================================================
 
 
-_PAPER_ID_HELP = (
-    "paper identifier: arXiv ID (2010.11929), DOI (10.18653/v1/N19-1423), "
-    "Semantic Scholar ID (ARXIV:2010.11929, DOI:10.xxx, CorpusId:12345), "
-    "or OpenReview URL (https://openreview.net/forum?id=XXX)"
+class SearchSource(str, Enum):
+    dblp = "dblp"
+    openreview = "openreview"
+    crossref = "crossref"
+    arxiv = "arxiv"
+    s2 = "s2"
+
+
+class FetchSource(str, Enum):
+    dblp = "dblp"
+    crossref = "crossref"
+    openreview = "openreview"
+    acl_anthology = "acl_anthology"
+    arxiv = "arxiv"
+
+
+app = typer.Typer(
+    help="Fetch paper metadata from multiple academic sources and present raw results.\n\n"
+    "The tool fetches and presents. It never judges.",
+    no_args_is_help=True,
 )
 
-_SHARED_EPILOG = (
-    "environment variables:\n"
-    "  SEMANTIC_SCHOLAR_API_KEY  higher rate limits for S2 ID resolution\n"
-    "  CROSSREF_EMAIL           polite pool with better rate limits (any valid email)"
-)
 
-
-def main() -> None:
-    _search_names = ", ".join(_SEARCH_SOURCES)
-
-    parser = argparse.ArgumentParser(
-        description="Fetch paper metadata from multiple academic sources and present raw results.\n"
-        "The tool fetches and presents. It never judges.",
-        epilog=(
-            "examples:\n"
-            "  %(prog)s fetch 2010.11929                           # exact fetch via arXiv ID\n"
-            "  %(prog)s fetch 10.18653/v1/N19-1423                  # exact fetch via DOI\n"
-            "  %(prog)s fetch 'https://openreview.net/forum?id=X'   # exact fetch via OpenReview URL\n"
-            "  %(prog)s fetch --json 1706.03762                     # JSON for piping to AI agent\n"
-            "  %(prog)s fetch --raw crossref 10.18653/v1/N19-1423   # full raw CrossRef API response\n"
-            "  %(prog)s search dblp 1706.03762                      # search DBLP by title\n"
-            "  %(prog)s search openreview 1706.03762                # search OpenReview by title\n"
-            "  %(prog)s search s2 1706.03762                        # search Semantic Scholar by title\n"
-            "  %(prog)s search --json crossref 1706.03762           # search CrossRef, JSON output\n"
-            "\n" + _SHARED_EPILOG
+@app.command()
+def fetch(
+    paper_id: Annotated[
+        str,
+        typer.Argument(
+            help="arXiv ID (2010.11929), DOI (10.18653/v1/N19-1423), "
+            "S2 ID (ARXIV:2010.11929, DOI:10.xxx, CorpusId:12345), "
+            "or OpenReview URL (https://openreview.net/forum?id=XXX)",
         ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    sub = parser.add_subparsers(dest="command")
-
-    # -- fetch subcommand --
-    p_fetch = sub.add_parser(
-        "fetch",
-        help="exact ID-based fetch from all sources (no fuzzy matching)",
-        epilog=(
-            "sources (exact ID-based):\n"
-            "  dblp           exact key lookup (requires S2 to provide DBLP key)\n"
-            "  crossref       DOI lookup — container-title, author, page, volume\n"
-            "  openreview     forum ID lookup — venue, acceptance type, BibTeX, keywords\n"
-            "  acl_anthology  ACL ID lookup — complete, copy-ready BibTeX\n"
-            "  arxiv          arXiv ID lookup — categories, dates, comments\n"
-            "\n" + _SHARED_EPILOG
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p_fetch.add_argument("paper_id", help=_PAPER_ID_HELP)
-    p_fetch.add_argument("--json", action="store_true", help="output as JSON array with _meta per source")
-    p_fetch.add_argument(
-        "--sources", help=f"comma-separated list of sources (default: all). choices: {','.join(ALL_SOURCES)}"
-    )
-    p_fetch.add_argument(
-        "--raw",
-        metavar="SOURCE",
-        help=f"full unfiltered API response from one source. choices: {','.join(ALL_SOURCES)}",
-    )
-
-    # -- search subcommand --
-    p_search = sub.add_parser(
-        "search",
-        help="title-based search on a single source (returns ALL results)",
-        epilog=(
-            "Resolves paper ID to title via S2, then searches the specified source.\n"
-            "Returns ALL results as a numbered list — no judgment, no auto-picking.\n"
-            "\n"
-            "search sources:\n"
-            "  dblp           bibliographic database — venue, year, type, key\n"
-            "  openreview     conference submissions — venue, acceptance type, BibTeX\n"
-            "  crossref       publisher metadata — DOI, container-title, page, volume\n"
-            "  arxiv          preprint server — categories, dates, comments\n"
-            "  s2             Semantic Scholar — venue, year, external IDs\n"
-            "\n" + _SHARED_EPILOG
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p_search.add_argument("source", choices=list(_SEARCH_SOURCES), help=f"search source ({_search_names})")
-    p_search.add_argument("paper_id", help=_PAPER_ID_HELP)
-    p_search.add_argument("--json", action="store_true", help="output as JSON array with _meta per source")
-
-    args = parser.parse_args()
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
-
+    ],
+    json_output: Annotated[bool, typer.Option("--json", help="output as JSON array with _meta per source")] = False,
+    sources: Annotated[Optional[str], typer.Option(help="comma-separated list of sources (default: all)")] = None,
+    raw: Annotated[Optional[FetchSource], typer.Option(help="full unfiltered API response from one source")] = None,
+) -> None:
+    """Exact ID-based fetch from all sources (no fuzzy matching)."""
     log = Console(stderr=True)
 
-    if args.command == "search":
-        results = search_one(args.source, args.paper_id, log)
-        if args.json:
-            display_json(results)
-        else:
-            display_search(results, Console())
-    else:  # fetch
-        sources = None
-        if args.sources:
-            sources = [s.strip() for s in args.sources.split(",")]
-            invalid = [s for s in sources if s not in ALL_SOURCES]
-            if invalid:
-                parser.error(f"Unknown sources: {', '.join(invalid)}. Choose from: {', '.join(ALL_SOURCES)}")
+    src_list = None
+    if sources:
+        src_list = [s.strip() for s in sources.split(",")]
+        invalid = [s for s in src_list if s not in ALL_SOURCES]
+        if invalid:
+            typer.echo(
+                f"Error: unknown sources: {', '.join(invalid)}. Choose from: {', '.join(ALL_SOURCES)}", err=True
+            )
+            raise typer.Exit(1)
 
-        if args.raw:
-            if args.raw not in ALL_SOURCES:
-                parser.error(f"Unknown source: {args.raw}. Choose from: {', '.join(ALL_SOURCES)}")
-            results = fetch_all(args.paper_id, log, sources=[args.raw], raw=True)
-            display_raw(results, args.raw)
-        elif args.json:
-            results = fetch_all(args.paper_id, log, sources=sources)
-            display_json(results)
-        else:
-            results = fetch_all(args.paper_id, log, sources=sources)
-            display_rich(results, Console())
+    if raw:
+        results = fetch_all(paper_id, log, sources=[raw.value], raw=True)
+        display_raw(results, raw.value)
+    elif json_output:
+        results = fetch_all(paper_id, log, sources=src_list)
+        display_json(results)
+    else:
+        results = fetch_all(paper_id, log, sources=src_list)
+        display_rich(results, Console())
+
+
+@app.command()
+def search(
+    source: Annotated[SearchSource, typer.Argument(help="search source")],
+    query: Annotated[str, typer.Argument(help="paper ID, or title string when --title is used")],
+    title: Annotated[
+        bool, typer.Option("--title", "-t", help="treat query as a plain title (skip S2 ID resolution)")
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json", help="output as JSON array with _meta per source")] = False,
+) -> None:
+    """Search a single source by title. By default resolves paper ID to title via S2."""
+    log = Console(stderr=True)
+    results = search_one(source.value, query, log, title=title)
+    if json_output:
+        display_json(results)
+    else:
+        display_search(results, Console())
 
 
 if __name__ == "__main__":
-    main()
+    app()
