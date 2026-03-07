@@ -807,7 +807,7 @@ def _resolve_ids(client: httpx.Client, pid: PaperId, log: Console) -> tuple[Sour
     # If we have DOI but no title (S2 failed), get title from CrossRef
     if ids.get("doi") and not ids.get("title"):
         log.print("[dim]  Fetching title from CrossRef…[/]")
-        cr = fetch_crossref(client, ids["doi"])
+        cr = fetch_crossref(client, ids["doi"])  # type: ignore[arg-type]  # guarded by ids.get("doi") above
         if cr["status"] == "ok":
             titles = cr["response"].get("title", [])
             if titles:

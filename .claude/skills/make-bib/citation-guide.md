@@ -140,7 +140,12 @@ BibTeX entries on OpenReview are programmatically auto-generated and may have is
 
 ### 4.4 Practical Use
 
-Use OpenReview for verifying acceptance status. Obtain the actual BibTeX from DBLP or the publisher's proceedings page.
+OpenReview serves two roles:
+
+- **Verification**: the most authoritative source for confirming acceptance status at venues that use the platform (ICLR, NeurIPS, COLM).
+- **Fallback BibTeX**: for recent acceptances or workshop papers not yet indexed by higher-tier sources (DBLP, publisher pages), OpenReview BibTeX can be used as a starting point. Because it is auto-generated, entries obtained this way should be annotated as unverified and the venue name and fields checked manually.
+
+When higher-tier sources are available (publisher page, DBLP), prefer those.
 
 
 ## 5. Citing Workshop Papers
@@ -186,46 +191,46 @@ If the above sources are inconclusive (e.g., a very recent paper not yet indexed
 
 ## 7. BibTeX Source Priority
 
-### 7.1 Tier 1: Publisher Pages and Field-Specific Anthologies
+### 7.1 Tier 1: Publisher / Anthology
 
-The most accurate BibTeX sources. Metadata comes directly from the original publisher or community-maintained archive.
+Authoritative metadata direct from the publisher. The most accurate BibTeX sources.
 
 | Source | Scope |
 |---|---|
 | ACL Anthology | *CL conferences (ACL, EMNLP, NAACL, etc.) and NLP workshops |
 | PMLR | ICML, AISTATS, COLT, and other ML conference proceedings |
-| INSPIRE-HEP | High-energy physics |
-| NASA ADS | Astronomy, planetary science |
+| arXiv | Preprints — when no formal venue is confirmed. arXiv is the publisher for preprints |
 | ACM Digital Library | ACM-published conferences (KDD, CHI, SIGIR, etc.) |
 | IEEE Xplore | IEEE-published conferences (CVPR, ICCV, etc.) |
 | Springer Link | Springer-published conferences (ECCV, ECML, etc.) |
-| PubMed | Medicine, life sciences |
-| MathSciNet / zbMATH | Mathematics |
+| Other publishers | Any venue with official proceedings page |
 
 ### 7.2 Tier 2: Curated Databases
 
-Use when Tier 1 sources are inconvenient or for bulk processing.
+Normalized, reliable metadata. Use when Tier 1 sources are inconvenient or for bulk processing.
 
-**DBLP (CS)**
-The most reliable Tier 2 source for CS. BibTeX is usable as-is in most cases. Always check for disambiguation number suffixes in author names.
+| Source | Scope |
+|---|---|
+| DBLP | CS — the most reliable Tier 2 source. BibTeX is usable as-is in most cases. Always check for disambiguation number suffixes in author names |
+| INSPIRE-HEP | High-energy physics |
+| NASA ADS | Astronomy, planetary science |
+| PubMed | Medicine, life sciences |
+| MathSciNet / zbMATH | Mathematics |
 
-**CrossRef (all disciplines)**
-The primary source for confirming formal publication status and DOIs. Metadata completeness depends on what publishers deposit — large publishers typically submit clean records, but smaller ones may have gaps (missing pages, incomplete dates). Useful as a metadata fallback when Tier 1 or DBLP is unavailable, but BibTeX formatting may need cleanup.
+### 7.3 Tier 3: Fallback
 
-### 7.3 Tier 3: Discovery Platforms
-
-Useful for finding papers quickly. BibTeX obtained from these sources must always be verified.
+Constructed from API data. BibTeX obtained from these sources requires verification and should be annotated as unverified.
 
 | Source | Characteristics |
 |---|---|
-| Semantic Scholar | Multi-discipline coverage; frequent metadata errors |
-| Google Scholar | Broadest coverage; lowest BibTeX quality |
+| CrossRef | DOI exists but no higher-tier source available. Metadata completeness depends on what publishers deposit — large publishers typically submit clean records, but smaller ones may have gaps (missing pages, incomplete dates) |
+| OpenReview | Recent acceptances or workshop papers not yet in Tier 1–2. Auto-generated BibTeX — verify venue name and fields (see Section 4) |
 
-Note: OpenReview is not listed here. It is a review management platform, not a discovery tool. For its role in acceptance verification, see Section 6.
+Discovery platforms (Semantic Scholar, Google Scholar) are not BibTeX sources — they are useful for finding papers but their metadata is unreliable and should never be used directly in BibTeX entries.
 
-### 7.4 Unpublished Papers (arXiv Only)
+### 7.4 Unpublished Papers
 
-For papers not yet formally published, use arXiv's own BibTeX with `journal={arXiv preprint arXiv:XXXX.XXXXX}`. Do not present unpublished papers as conference publications.
+For papers not yet formally published, use arXiv metadata (Tier 1 for preprints) with `journal={arXiv preprint arXiv:XXXX.XXXXX}`. Do not present unpublished papers as conference publications.
 
 ### 7.5 DOI Does Not Guarantee Complete Metadata
 

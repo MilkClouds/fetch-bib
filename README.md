@@ -53,7 +53,7 @@ Citation work has a mechanical half and a judgment half.
 
 **Mechanical** — which source to trust, how to fetch metadata, what fields to include, how to format them. These are rule-based and tedious. make-bib handles them entirely:
 
-- Source selection per paper (ACL Anthology > PMLR > DBLP > CrossRef > arXiv)
+- Source selection per paper (ACL Anthology > PMLR > DBLP > CrossRef; arXiv for preprints)
 - Metadata fetching from 6+ authoritative databases
 - Entry type, key style, venue abbreviation, field filtering
 - Local DBLP database for instant offline lookup (~40 conferences)
@@ -84,9 +84,9 @@ Input: paper ID, title, or abbreviation
          └───────────────────┬────────────────┘
                              │
          ┌─ Fetch BibTeX ────┤               ambiguous?
-         │  Tier 1: ACL Anthology, PMLR  ──────→ asks you
-         │  Tier 2: DBLP, CrossRef             (multiple candidates,
-         │  Tier 3: arXiv (preprint only)       workshop vs main,
+         │  Tier 1: Publisher, arXiv       ──────→ asks you
+         │  Tier 2: DBLP                       (multiple candidates,
+         │  Tier 3: CrossRef, OpenReview        workshop vs main,
          └───────────────────┬────────────────┘ venue unclear)
                              │
          ┌─ Format ──────────┤
