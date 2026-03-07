@@ -4,7 +4,7 @@ A [Claude Code skill](https://code.claude.com/docs/en/skills) that generates Bib
 
 **It does:** Fetches BibTeX from the publisher first (ACL Anthology, PMLR, arXiv), falls back to curated databases (DBLP), formats the entry, and always shows exactly where each entry came from. The mechanical half of citation, handled.
 
-**It does not:**
+**It does NOT:**
 - **Guess.** The first rule is **When in doubt, ask.** Multiple candidates, ambiguous venue, workshop vs main track — it stops and asks you.
 - **Generate.** Every field comes from an [authoritative source](#sources) — not from an LLM filling in blanks.
 
