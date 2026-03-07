@@ -148,7 +148,13 @@ In Claude Code, run:
 /plugin marketplace add MilkClouds/make-bib
 ```
 
-Then select `Browse and install plugins` → `make-bib` → `Install now`.
+Then select `Browse and install plugins` → `make-bib` → `Install now`. Or install directly:
+
+```
+/plugin install make-bib@make-bib
+```
+
+After installing, restart your Claude Code session for the skill to take effect.
 
 Or manually: clone this repo into `.claude/skills/make-bib` (project-level) or `~/.claude/skills/make-bib` (global).
 
