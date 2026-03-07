@@ -11,41 +11,50 @@ A [Claude Code skill](https://code.claude.com/docs/en/skills) that generates Bib
 ```
 > /make-bib StreamingLLM
 
-% source: dblp:conf/iclr/XiaoTCHL24 via dblp
-@inproceedings{xiao2024streamingllm,
+% source: dblp:conf/iclr/XiaoTCHL24 via dblp (https://dblp.org/rec/conf/iclr/XiaoTCHL24.bib)
+@inproceedings{xiao2024efficient,
   author    = {Guangxuan Xiao and Yuandong Tian and Beidi Chen
                and Song Han and Mike Lewis},
   title     = {Efficient Streaming Language Models
                with Attention Sinks},
-  booktitle = {ICLR},
+  booktitle = {{ICLR}},
   year      = {2024},
 }
 ```
 
 Google Scholar would give you arXiv 2023 for this paper. It's ICLR 2024.
 
-When something is ambiguous, it stops and asks:
+When something is ambiguous, it stops and asks — then goes deep to find the right source:
 
 ```
 > /make-bib Scaling Laws
 
-? Which "Scaling Laws" paper do you want cited?
+? Which "Scaling Laws" paper do you mean?
   1. Kaplan et al. 2020 — Scaling Laws for Neural Language Models (arXiv:2001.08361)
-  2. Cherti et al. 2023 — Reproducible Scaling Laws for Contrastive Language-Image Learning (CVPR 2023)
-  3. Lin et al. 2024 — Data Scaling Laws in Imitation Learning for Robotic Manipulation (ICLR 2025)
+  2. Hoffmann et al. 2022 — Training Compute-Optimal Large Language Models (Chinchilla, arXiv:2203.15556)
+  3. Henighan et al. 2020 — Scaling Laws for Autoregressive Generative Modeling (arXiv:2010.14701)
 
-> 3
+> 2
 
-% source: dblp:conf/iclr/LinHSWY025 via dblp
-@inproceedings{lin2025data,
-  title     = {Data Scaling Laws in Imitation Learning
-               for Robotic Manipulation},
-  author    = {Fanqi Lin and Yingdong Hu and Pingyue Sheng
-               and Chuan Wen and Jiacheng You and Yang Gao},
-  booktitle = {ICLR},
-  year      = {2025},
+  Step 1: arxiv:2203.15556, DOI 10.52202/068431-2176
+  Step 2: S2 says NeurIPS 2022. DBLP search by title — miss (different title).
+          DBLP search by DOI — miss. Trying NeurIPS proceedings directly...
+          Found. Published title: "An empirical analysis of compute-optimal
+          large language model training"
+  Step 3: Tier 1 — fetching BibTeX from proceedings.neurips.cc
+
+% source: neurips:NEURIPS2022_c1e2faff via neurips (https://proceedings.neurips.cc/paper_files/paper/19447-/bibtex)
+@inproceedings{hoffmann2022training,
+  title     = {An empirical analysis of compute-optimal
+               large language model training},
+  author    = {Hoffmann, Jordan and Borgeaud, Sebastian
+               and Mensch, Arthur and ...},
+  booktitle = {NeurIPS},
+  year      = {2022},
 }
 ```
+
+DBLP indexes this paper under its arXiv title ("Training Compute-Optimal Large Language Models"), but NeurIPS published it under a **different title** ("An empirical analysis of compute-optimal large language model training"). Opus 4.6 with make-bib exhausts DBLP lookups, falls through to the NeurIPS proceedings page, and uses the published title.
 
 ## Limitations
 
@@ -123,10 +132,6 @@ Input: paper ID, title, or abbreviation
 Create `bibstyle.toml` in your project root:
 
 ```toml
-[sources]
-verify = ["s2", "dblp", "openreview"]
-bibtex = ["acl_anthology", "pmlr", "dblp", "crossref", "arxiv"]
-
 [fields]
 conference = ["title", "author", "booktitle", "year"]
 journal = ["title", "author", "journal", "year", "volume", "number"]
