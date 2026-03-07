@@ -72,8 +72,10 @@ def _get_dblp_local():
     global _dblp_local
     if _dblp_local is None:
         from pathlib import Path
+
         sys.path.insert(0, str(Path(__file__).parent))
         import dblp_local
+
         _dblp_local = dblp_local
     return _dblp_local
 
@@ -154,8 +156,7 @@ class PaperId:
         s = raw.strip()
         if ":" not in s:
             raise ValueError(
-                f"Missing type prefix in {s!r}. "
-                f"Expected format: {{type}}:{{value}} where type is one of {cls.TYPES}"
+                f"Missing type prefix in {s!r}. Expected format: {{type}}:{{value}} where type is one of {cls.TYPES}"
             )
         type_str, value = s.split(":", 1)
         if type_str not in cls.TYPES:
@@ -181,8 +182,13 @@ class PaperId:
     def to_ids(self) -> dict[str, str | None]:
         """Extract known IDs directly from the parsed input (no API call)."""
         ids: dict[str, str | None] = {
-            "doi": None, "arxiv_id": None, "acl_id": None,
-            "dblp_key": None, "openreview_id": None, "title": None, "venue": None,
+            "doi": None,
+            "arxiv_id": None,
+            "acl_id": None,
+            "dblp_key": None,
+            "openreview_id": None,
+            "title": None,
+            "venue": None,
         }
         match self.type:
             case "arxiv":
@@ -301,7 +307,12 @@ def fetch_crossref(client: httpx.Client, doi: str, *, raw: bool = False) -> Sour
 
 
 def fetch_dblp(
-    client: httpx.Client, dblp_key: str, *, raw: bool = False, title: str | None = None, doi: str | None = None,
+    client: httpx.Client,
+    dblp_key: str,
+    *,
+    raw: bool = False,
+    title: str | None = None,
+    doi: str | None = None,
 ) -> SourceData:
     """Fetch DBLP record. Tries: local DB by title → .bib by key → .bib by DOI."""
     # Try local DB by title if available (more reliable than key from S2)
@@ -664,7 +675,7 @@ def search_arxiv(client: httpx.Client, title: str) -> SourceData:
             continue
         authors = [el.findtext("atom:name", "", _ARXIV_NS) for el in entry.findall("atom:author", _ARXIV_NS)]
         categories = [el.get("term", "") for el in entry.findall("arxiv:primary_category", _ARXIV_NS)]
-        arxiv_match = re.search(r'arxiv\.org/abs/(\d+\.\d+)', entry_id)
+        arxiv_match = re.search(r"arxiv\.org/abs/(\d+\.\d+)", entry_id)
         hit: dict[str, Any] = {
             "title": " ".join((entry.findtext("atom:title", "", _ARXIV_NS) or "").split()),
             "id": entry_id,
@@ -913,6 +924,7 @@ def _format_url(req: dict) -> str:
     params = req.get("params")
     if params:
         from urllib.parse import urlencode
+
         return url + "?" + urlencode(params)
     return url
 
@@ -1053,8 +1065,7 @@ def display_search(results: list[SourceData], console: Console) -> None:
 
             # Render declared display fields
             fields_str = "  ".join(
-                f"[cyan]{label}[/]={_format_field_value(hit.get(key, '—'))}"
-                for key, label in display_fields
+                f"[cyan]{label}[/]={_format_field_value(hit.get(key, '—'))}" for key, label in display_fields
             )
             if fields_str:
                 console.print(f"      {fields_str}")
@@ -1168,7 +1179,9 @@ def fetch(
     json_output: Annotated[bool, typer.Option("--json", help="output as JSON array with _meta per source")] = False,
     sources: Annotated[Optional[str], typer.Option(help="comma-separated list of sources (default: all)")] = None,
     raw: Annotated[Optional[FetchSource], typer.Option(help="full unfiltered API response from one source")] = None,
-    allow_no_s2_key: Annotated[bool, typer.Option("--allow-no-s2-key", help="proceed without S2 API key (slower rate limits)")] = False,
+    allow_no_s2_key: Annotated[
+        bool, typer.Option("--allow-no-s2-key", help="proceed without S2 API key (slower rate limits)")
+    ] = False,
 ) -> None:
     """Exact ID-based fetch from all sources (no fuzzy matching)."""
     log = Console(stderr=True)
@@ -1206,7 +1219,9 @@ def search(
     source: Annotated[SearchSource, typer.Argument(help="search source")],
     query: Annotated[str, typer.Argument(help="paper title to search for")],
     json_output: Annotated[bool, typer.Option("--json", help="output as JSON array with _meta per source")] = False,
-    allow_no_s2_key: Annotated[bool, typer.Option("--allow-no-s2-key", help="proceed without S2 API key (slower rate limits)")] = False,
+    allow_no_s2_key: Annotated[
+        bool, typer.Option("--allow-no-s2-key", help="proceed without S2 API key (slower rate limits)")
+    ] = False,
 ) -> None:
     """Search a single source by title."""
     log = Console(stderr=True)

@@ -48,26 +48,26 @@ def normalize_title(title: str) -> str:
 def _bib_field(bibtex: str, name: str) -> str | None:
     """Extract a field value from a BibTeX entry. Handles both {value} and bare value."""
     # Try braced: field = {value},
-    m = re.search(rf'^\s*{name}\s*=\s*\{{(.+?)\}}\s*[,}}]', bibtex, re.MULTILINE | re.DOTALL)
+    m = re.search(rf"^\s*{name}\s*=\s*\{{(.+?)\}}\s*[,}}]", bibtex, re.MULTILINE | re.DOTALL)
     if m:
         return m.group(1).strip()
     # Try bare: field = value,
-    m = re.search(rf'^\s*{name}\s*=\s*([^,\s]+)\s*,', bibtex, re.MULTILINE)
+    m = re.search(rf"^\s*{name}\s*=\s*([^,\s]+)\s*,", bibtex, re.MULTILINE)
     return m.group(1).strip() if m else None
 
 
 def _bib_key(bibtex: str) -> str | None:
     """Extract the entry key from @type{key, ...}."""
-    m = re.match(r'@\w+\{([^,]+),', bibtex)
+    m = re.match(r"@\w+\{([^,]+),", bibtex)
     return m.group(1).strip() if m else None
 
 
 def _structured_from_bibtex(bibtex: str) -> dict[str, Any]:
     """Build structured entry from raw BibTeX string."""
     raw_title = _bib_field(bibtex, "title") or ""
-    clean_title = re.sub(r'[{}]', '', raw_title).rstrip(".")
+    clean_title = re.sub(r"[{}]", "", raw_title).rstrip(".")
     author_str = _bib_field(bibtex, "author") or ""
-    authors = [a.strip() for a in re.split(r'\s+and\s+', author_str)] if author_str else []
+    authors = [a.strip() for a in re.split(r"\s+and\s+", author_str)] if author_str else []
     return {
         "title": clean_title,
         "venue": _bib_field(bibtex, "booktitle") or _bib_field(bibtex, "journal"),
@@ -150,7 +150,7 @@ def _year_range(conf: dict[str, Any]) -> list[int]:
 def _parse_bib_entries(bib_text: str) -> list[tuple[str, str]]:
     """Parse BibTeX text into (normalized_title, raw_bibtex_string) pairs."""
     results: list[tuple[str, str]] = []
-    entries = re.split(r'(?=@\w+\{)', bib_text)
+    entries = re.split(r"(?=@\w+\{)", bib_text)
 
     for entry in entries:
         entry = entry.strip()
@@ -158,7 +158,7 @@ def _parse_bib_entries(bib_text: str) -> list[tuple[str, str]]:
             continue
 
         title_match = re.search(
-            r'^\s*title\s*=\s*\{(.+?)\}\s*[,}]',
+            r"^\s*title\s*=\s*\{(.+?)\}\s*[,}]",
             entry,
             re.MULTILINE | re.DOTALL,
         )
@@ -166,7 +166,7 @@ def _parse_bib_entries(bib_text: str) -> list[tuple[str, str]]:
             continue
 
         title = title_match.group(1).strip()
-        clean_title = re.sub(r'[{}]', '', title)
+        clean_title = re.sub(r"[{}]", "", title)
         norm = normalize_title(clean_title)
 
         if norm:
@@ -174,8 +174,8 @@ def _parse_bib_entries(bib_text: str) -> list[tuple[str, str]]:
             cleaned = entry
             for field in ("month", "timestamp", "biburl", "bibsource"):
                 cleaned = re.sub(
-                    rf'^\s*{field}\s*=\s*\{{[^}}]*\}}\s*,?\s*\n?',
-                    '',
+                    rf"^\s*{field}\s*=\s*\{{[^}}]*\}}\s*,?\s*\n?",
+                    "",
                     cleaned,
                     flags=re.MULTILINE,
                 )
@@ -250,9 +250,7 @@ def _download_venue_year(
                     time.sleep(wait)
                     continue
                 if resp.status_code == 503:
-                    raise httpx.HTTPStatusError(
-                        f"503 Service Unavailable", request=resp.request, response=resp
-                    )
+                    raise httpx.HTTPStatusError("503 Service Unavailable", request=resp.request, response=resp)
                 resp.raise_for_status()
                 break
             except httpx.HTTPError as e:
@@ -348,7 +346,7 @@ def sync(
             if total_new > 0:
                 console.print(f"  [green]+{total_new} entries synced[/]")
             else:
-                console.print(f"  [yellow]No new entries[/]")
+                console.print("  [yellow]No new entries[/]")
 
 
 # -- Search --
