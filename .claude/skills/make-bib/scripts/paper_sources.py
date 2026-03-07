@@ -109,7 +109,8 @@ class RateLimiter:
 
 
 def _s2_interval() -> float:
-    return 1.0 if os.environ.get("SEMANTIC_SCHOLAR_API_KEY") else 1.1
+    """S2: 1 rps with API key, 3s without (shared unauthenticated pool, only used with --allow-no-s2-key)."""
+    return 1.0 if os.environ.get("SEMANTIC_SCHOLAR_API_KEY") else 3.0
 
 
 _RATE_LIMITERS: dict[str, RateLimiter] = {
