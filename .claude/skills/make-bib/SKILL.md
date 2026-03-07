@@ -73,7 +73,9 @@ No venue confirmed → treat as arXiv preprint.
 
 **If step 2 confirmed a formal venue, never use arXiv as the BibTeX source.** Use the publisher (Tier 1) or DBLP (Tier 2). arXiv is only a BibTeX source for confirmed preprints — papers with no venue after step 2.
 
-The hierarchy reflects trustworthiness — use the best source you can reach:
+**Try every source in tier order (Tier 1 → 2 → 3) before falling back.** A single failed attempt (e.g., title search miss) does not exhaust a source — try other methods (DOI, key, proceedings page). Only move to the next tier after all methods for the current tier are genuinely exhausted.
+
+The hierarchy reflects trustworthiness:
 
 **Tier 1 — Publisher / Anthology** (authoritative metadata direct from publisher):
 
@@ -89,7 +91,7 @@ The hierarchy reflects trustworthiness — use the best source you can reach:
 | Source | URL | Scope |
 |--------|-----|-------|
 | DBLP | `https://dblp.org/rec/{key}.bib` | By key, by title (local DB), or by DOI (`dblp.org/doi/{doi}.bib`) |
-| Others by field | INSPIRE-HEP (physics), ADS (astronomy), PubMed (medicine), etc. | See `[sources]` in bibstyle.toml |
+| Others by field | INSPIRE-HEP (physics), ADS (astronomy), PubMed (medicine), etc. | Non-CS fields |
 
 **Tier 3 — Fallback** (constructed from API data — requires `⚠ UNVERIFIED` annotation):
 
@@ -130,18 +132,11 @@ Output the annotated BibTeX entry only.
 
 ## `bibstyle.toml` schema
 
-When present, `bibstyle.toml` MUST be followed — it strictly overrides all defaults. `[sources].verify` and `[sources].bibtex` replace the default tier order — only listed sources are used, in the listed order.
+When present, `bibstyle.toml` MUST be followed — it strictly overrides all defaults.
 
 **If absent, the defaults shown below still apply.** Do not treat missing bibstyle.toml as "no formatting rules" — the schema defines the defaults.
 
 ```toml
-[sources]
-# Discovery & verification: checked to determine publication status
-verify = ["s2", "dblp", "openreview"]
-# BibTeX citation: tried in priority order (Tier 1 → Tier 3)
-bibtex = ["acl_anthology", "pmlr", "dblp", "crossref", "arxiv"]
-# Available: acl_anthology, pmlr, dblp, openreview, crossref, arxiv, inspire_hep, ads, pubmed
-
 [fields]
 conference = ["title", "author", "booktitle", "year"]
 journal = ["title", "author", "journal", "year", "volume", "number"]
