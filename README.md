@@ -198,6 +198,10 @@ uv run scripts/dblp_local.py sync -c neurips -y 2024  # specific venue/year
 uv run scripts/dblp_local.py stats                    # show coverage
 ```
 
+## Contributing
+
+Contributions are very welcome — especially issues and changes that improve citation accuracy. Bug reports for incorrect metadata, missing sources, or wrong venue mappings are particularly valuable.
+
 ## Related projects
 
 - [**rebiber**](https://github.com/yuchenlin/rebiber) — Normalizes arXiv BibTeX with DBLP/ACL data. make-bib's local database is inspired by rebiber's approach.
