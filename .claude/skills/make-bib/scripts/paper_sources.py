@@ -3,6 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "httpx",
+#     "hishel[httpx]",
 #     "rich",
 #     "typer",
 #     "python-dotenv",
@@ -24,9 +25,12 @@ import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Annotated, Any, Literal, Optional
 from urllib.parse import quote
 
+import hishel
+from hishel.httpx import SyncCacheTransport
 import httpx
 import typer
 from dotenv import load_dotenv
@@ -36,6 +40,24 @@ load_dotenv()
 
 # -- Type alias --
 SourceData = dict[str, Any]
+
+# -- HTTP client with cache --
+_CACHE_DIR = Path.home() / ".cache" / "make-bib"
+
+
+def _make_client(timeout: float = 30.0) -> httpx.Client:
+    """Create an httpx Client with transparent HTTP caching via hishel."""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    storage = hishel.SyncSqliteStorage(
+        default_ttl=86400,
+        database_path=str(_CACHE_DIR / "http_cache.db"),
+    )
+    transport = SyncCacheTransport(
+        httpx.HTTPTransport(),
+        storage=storage,
+        policy=hishel.FilterPolicy(),  # cache all responses regardless of headers
+    )
+    return httpx.Client(transport=transport, timeout=timeout)
 
 
 # =============================================================================
@@ -273,8 +295,10 @@ def fetch_crossref(client: httpx.Client, doi: str, *, raw: bool = False) -> Sour
     return {"source": "crossref", "request": req, "status": "ok", "response": response}
 
 
-def fetch_dblp(client: httpx.Client, dblp_key: str, *, raw: bool = False, title: str | None = None) -> SourceData:
-    """Fetch DBLP record. Tries local DB by title first, then .bib URL by key."""
+def fetch_dblp(
+    client: httpx.Client, dblp_key: str, *, raw: bool = False, title: str | None = None, doi: str | None = None,
+) -> SourceData:
+    """Fetch DBLP record. Tries: local DB by title → .bib by key → .bib by DOI."""
     # Try local DB by title if available (more reliable than key from S2)
     if title:
         hits = _dblp_local_search(title)
@@ -287,23 +311,36 @@ def fetch_dblp(client: httpx.Client, dblp_key: str, *, raw: bool = False, title:
                 "response": local if not raw else {"bibtex": local["bibtex"]},
             }
 
-    # Fall back to DBLP API by key
-    bib_url = f"https://dblp.org/rec/{dblp_key}.bib"
-    req = {"url": bib_url}
-    bibtex: str | None = None
+    # Try DBLP API by key
+    # param=0: condensed — abbreviated booktitle, no editor/timestamp/biburl noise.
+    # param=1: full proceedings title (dates/locations) needing re-abbreviation + editor list.
+    # param=2: two entries (@inproceedings + @proceedings linked by crossref field).
+    if dblp_key:
+        bib_url = f"https://dblp.org/rec/{dblp_key}.bib?param=0"
+        try:
+            bib_resp = _get(client, bib_url)
+            if bib_resp:
+                bibtex = bib_resp.text.strip()
+                if bibtex:
+                    info: dict[str, Any] = {"key": dblp_key, "bibtex": bibtex}
+                    return {"source": "dblp", "request": {"url": bib_url}, "status": "ok", "response": info}
+        except httpx.HTTPError:
+            pass
 
-    try:
-        bib_resp = _get(client, bib_url)
-        if bib_resp:
-            bibtex = bib_resp.text.strip()
-    except httpx.HTTPError:
-        pass
+    # Fall back to DOI → DBLP direct path
+    if doi:
+        doi_url = f"https://dblp.org/doi/{doi}.bib?param=0"
+        try:
+            doi_resp = _get(client, doi_url)
+            if doi_resp:
+                bibtex = doi_resp.text.strip()
+                if bibtex:
+                    info = {"doi": doi, "bibtex": bibtex}
+                    return {"source": "dblp", "request": {"url": doi_url}, "status": "ok", "response": info}
+        except httpx.HTTPError:
+            pass
 
-    if not bibtex:
-        return _error("dblp", req, "DBLP API unavailable and key not in local DB")
-
-    info: dict[str, Any] = {"key": dblp_key, "bibtex": bibtex}
-    return {"source": "dblp", "request": req, "status": "ok", "response": info}
+    return _error("dblp", {}, "not found in local DB, by key, or by DOI")
 
 
 _ARXIV_NS = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
@@ -796,7 +833,7 @@ def fetch_all(
     enabled = sources or ALL_SOURCES
     results: list[SourceData] = []
 
-    with httpx.Client(timeout=30.0) as client:
+    with _make_client() as client:
         s2, ids = _resolve_ids(client, pid, log)
         results.append(s2)
 
@@ -808,10 +845,13 @@ def fetch_all(
             id_field = spec["id_field"]
             id_val = ids.get(id_field)
 
-            # DBLP: pass title for local DB lookup (more reliable than key from S2)
+            # DBLP: pass title for local DB lookup, and DOI for direct fallback
             extra_kwargs: dict[str, Any] = {}
-            if name == "dblp" and ids.get("title"):
-                extra_kwargs["title"] = ids["title"]
+            if name == "dblp":
+                if ids.get("title"):
+                    extra_kwargs["title"] = ids["title"]
+                if ids.get("doi"):
+                    extra_kwargs["doi"] = ids["doi"]
 
             if not id_val and not extra_kwargs:
                 results.append(_skipped(name, f"no {id_field}"))
@@ -849,7 +889,7 @@ def search_one(
 
     log.print(f'[dim]Searching by title: "{title}"[/]\n')
 
-    with httpx.Client(timeout=30.0) as client:
+    with _make_client() as client:
         log.print(f"  [dim]{source}: searching…[/]", end="")
         result = search_fn(client, title)
         n = result.get("response", {}).get("total", 0) if result["status"] == "ok" else 0
