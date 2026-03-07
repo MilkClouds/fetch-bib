@@ -69,7 +69,7 @@ LLMs hallucinate citations. This is not hypothetical — it is happening at scal
 
 The root cause: LLMs generate plausible-looking citations from statistical patterns, not from actual sources. make-bib avoids this by never generating metadata — every field comes from a publisher, curated database, or API response, with the source URL attached.
 
-That said, make-bib is still an LLM skill. It can pick the wrong source, misformat fields, or fail under edge cases. Always review the output before citing. Designed for and tested with Claude Opus 4.6 — correct behavior with lower-tier models is not guaranteed.
+That said, make-bib is still an LLM skill. It can pick the wrong source, misformat fields, or fail under edge cases. **Always review the output before citing.** Designed for and tested with **Claude Opus 4.6** — *correct behavior with lower-tier models is not guaranteed.*
 
 ## Sources
 
