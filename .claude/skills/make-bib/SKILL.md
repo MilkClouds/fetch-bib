@@ -25,7 +25,9 @@ For deeper background on source characteristics, see `${CLAUDE_SKILL_DIR}/citati
 
 `uv run ${CLAUDE_SKILL_DIR}/scripts/dblp_local.py`:
 - `sync` — download/update local DBLP database.
-- `search "<title>"` — search local DB by normalized title.
+- `search "<title>"` — search local DB by normalized title. No rate limit — prefer over API calls.
+
+**Rate limits**: External APIs have rate limits. Do not run more than 3 concurrent make-bib invocations. On 429 errors, wait and retry once — do not spawn more subagents to work around it.
 
 ## Workflow
 
