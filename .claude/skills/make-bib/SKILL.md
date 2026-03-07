@@ -11,7 +11,7 @@ For deeper background on source characteristics, see `${CLAUDE_SKILL_DIR}/citati
 
 ## Rules
 
-- **When in doubt, ask**: citation involves judgment calls the user should make. Use `AskUserQuestion` whenever the right choice isn't clear — multiple candidates for the same title, ambiguous venue, workshop vs main track, conflicting metadata across sources. Silent guessing risks misrepresentation.
+- **When in doubt, ask.**: citation involves judgment calls the user should make. Use `AskUserQuestion` whenever the right choice isn't clear — multiple candidates for the same title, ambiguous venue, workshop vs main track, conflicting metadata across sources. Silent guessing risks misrepresentation.
 - **Single source of truth**: all fields in one entry come from the same source. Never mix.
 - **Honest representation**: never cite a preprint as published or vice versa. Workshop papers must have "Workshop" in booktitle — using only the parent conference name is misrepresentation.
 - **Discovery ≠ citation**: tools that help find papers (S2, Google Scholar, etc.) optimize for coverage, not metadata accuracy. Use them for discovery and ID collection, but never copy their venue names, author formatting, or dates into BibTeX fields.
