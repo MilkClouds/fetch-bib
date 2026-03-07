@@ -42,7 +42,13 @@ Every step is mandatory. Skipping any step is a failure.
 
 **`SEMANTIC_SCHOLAR_API_KEY`**:
 - **Set** → proceed.
-- **Not set** → `AskUserQuestion` to request the key (via `export SEMANTIC_SCHOLAR_API_KEY=...` or in a `.env` file in the working directory). If the user declines, proceed (pass `--allow-no-s2-key` as needed) — but before continuing, warn the user explicitly: without the key, `fetch`/`search s2` are blocked by default, and unauthenticated requests share a global pool with heavy throttling (3s fallback interval vs 1 req/s authenticated).
+- **Not set** → `AskUserQuestion` — question: "SEMANTIC_SCHOLAR_API_KEY is not set. Paste your key below, or select an option." Options:
+  - (1) label: "Skip", description: "Not recommended. Without the key, fetch/search s2 are blocked by default, and unauthenticated requests use a shared pool with heavy throttling (3s interval vs 1 req/s)."
+  - (2) label: "How do I get a key?", description: "Free at semanticscholar.org/product/api"
+  - Handling:
+    - **User pastes a key** → write `SEMANTIC_SCHOLAR_API_KEY=<key>` to `.env` in the working directory, proceed.
+    - **"How do I get a key?"** → direct the user to the URL, then re-ask.
+    - **"Skip"** → proceed with `--allow-no-s2-key`.
 
 ### 1. Find the paper
 
