@@ -1,8 +1,12 @@
-# make-bib
+# make-bib: All you need is the final look
 
-**All you need is the final look.**
+A [Claude Code skill](https://code.claude.com/docs/en/skills) that generates BibTeX from authoritative sources.
 
-A [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skill that generates BibTeX from authoritative sources.
+**It does:** Fetches BibTeX from the publisher first (ACL Anthology, PMLR, arXiv), falls back to curated databases (DBLP), formats the entry, and always shows exactly where each entry came from. The mechanical half of citation, handled.
+
+**It does not:**
+- **Guess.** The first rule is **when in doubt, ask.** Multiple candidates, ambiguous venue, workshop vs main track — it stops and asks you.
+- **Generate.** Every field comes from an [authoritative source](#sources) — not from an LLM filling in blanks.
 
 ```
 > /make-bib StreamingLLM
@@ -45,27 +49,30 @@ When something is ambiguous, it stops and asks:
 }
 ```
 
-A CLI tool would silently pick one or fail. make-bib is a [Claude Code skill](https://docs.anthropic.com/en/docs/claude-code), so it can stop mid-workflow, ask you a question, understand your answer, and continue — the same way a knowledgeable colleague would.
+## Sources
 
-## Two halves of citation
+**Tier 1 — Publisher / Anthology** (authoritative metadata direct from publisher):
 
-Citation work has a mechanical half and a judgment half.
+| Source | Scope |
+|---|---|
+| ACL Anthology | ACL, EMNLP, NAACL, and NLP workshops |
+| PMLR | ICML, AISTATS, COLT, UAI, CoRL, ALT |
+| arXiv | Preprints (when no formal venue is confirmed) |
 
-**Mechanical** — which source to trust, how to fetch metadata, what fields to include, how to format them. These are rule-based and tedious. make-bib handles them entirely:
+**Tier 2 — Curated DB** (normalized, reliable):
 
-- Source selection per paper (ACL Anthology > PMLR > DBLP > CrossRef; arXiv for preprints)
-- Metadata fetching from 6+ authoritative databases
-- Entry type, key style, venue abbreviation, field filtering
-- Local DBLP database for instant offline lookup (~40 conferences)
+| Source | Scope |
+|---|---|
+| DBLP | ~40 CS conferences via local database (includes IEEE, ACM venues) |
 
-**Judgment** — which version to cite, conference vs journal vs preprint, workshop vs main track, what to do when sources disagree. These require human context that no tool can reliably provide. make-bib does not touch them:
+**Tier 3 — Fallback:**
 
-- Never decides which version is "correct"
-- Never auto-fixes entries
-- Never renders a PASS/FAIL verdict
-- Stops and asks you: "workshop or main track?", "two venues found — which one?", "this looks like a preprint but has a DOI — proceed?"
+| Source | Scope |
+|---|---|
+| CrossRef | Any paper with a DOI, when higher tiers unavailable |
+| OpenReview | Recent acceptances or workshops not yet in Tier 1–2 |
 
-> The boundary is strict. Everything rule-based is automated. Everything that requires judgment is yours.
+Entries from Tier 3 sources are labeled `⚠ UNVERIFIED` in the output. If you see this marker, verify the venue name, author list, and year yourself before using the entry.
 
 ## Workflow
 

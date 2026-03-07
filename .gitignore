@@ -8,6 +8,8 @@
 # NFS lock files (shared cluster)
 .nfs*
 
+/uv.lock
+
 # ============================================================================
 # Below items are from GitHub's official Python .gitignore template
 # https://github.com/github/gitignore/blob/main/Python.gitignore
