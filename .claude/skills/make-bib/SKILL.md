@@ -36,10 +36,8 @@ Every step is mandatory. Skipping any step is a failure.
 
 ### 0. Check for `bibstyle.toml`
 
-MUST run before any other step. Look for `bibstyle.toml` in the working directory.
-
-- **Found** → read it and apply. Proceed to step 1.
-- **Not found** → MUST stop and `AskUserQuestion` whether to (1) use the defaults from the schema section below, or (2) customize specific settings. Do not proceed to step 1 until the user answers.
+- **Found** → read and apply. All formatting decisions (venue style, fields, key style) come from this file.
+- **Not found** → `AskUserQuestion` with two options: (1) create with defaults from schema section below, (2) customize specific settings. Write `bibstyle.toml` with the chosen configuration before proceeding to step 1.
 
 ### 1. Find the paper
 
