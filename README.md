@@ -27,27 +27,31 @@ Google Scholar would give you arXiv 2023 for this paper. It's ICLR 2024.
 When something is ambiguous, it stops and asks:
 
 ```
-> /make-bib "Scaling Data-Constrained Language Models"
+> /make-bib Scaling Laws
 
-? This paper appears in two venues:
-  1. NeurIPS 2023 (main conference)
-  2. NeurIPS 2023 Workshop on Instruction Tuning
-  Which version are you citing?
+? Which "Scaling Laws" paper do you want cited?
+  1. Kaplan et al. 2020 — Scaling Laws for Neural Language Models (arXiv:2001.08361)
+  2. Cherti et al. 2023 — Reproducible Scaling Laws for Contrastive Language-Image Learning (CVPR 2023)
+  3. Lin et al. 2024 — Data Scaling Laws in Imitation Learning for Robotic Manipulation (ICLR 2025)
 
-> 1
+> 3
 
-% source: dblp:conf/neurips/MuennighoffRWS23 via dblp
-@inproceedings{muennighoff2023scaling,
-  author    = {Niklas Muennighoff and Alexander M. Rush
-               and Boaz Barak and Teven Le Scao
-               and Aleksandra Piktus and Nouamane Tazi
-               and Sampo Pyysalo and Thomas Wolf
-               and Colin Raffel},
-  title     = {Scaling Data-Constrained Language Models},
-  booktitle = {NeurIPS},
-  year      = {2023},
+% source: dblp:conf/iclr/LinHSWY025 via dblp
+@inproceedings{lin2025data,
+  title     = {Data Scaling Laws in Imitation Learning
+               for Robotic Manipulation},
+  author    = {Fanqi Lin and Yingdong Hu and Pingyue Sheng
+               and Chuan Wen and Jiacheng You and Yang Gao},
+  booktitle = {ICLR},
+  year      = {2025},
 }
 ```
+
+## Limitations
+
+make-bib is an LLM skill. It fetches from authoritative sources and follows rules, but it can still pick the wrong source, misformat fields, or hallucinate under edge cases. Always review the output before citing.
+
+Designed for and tested with Claude Opus 4.6. Correct behavior with lower-tier models (Sonnet, Haiku) is not guaranteed.
 
 ## Sources
 
@@ -157,3 +161,5 @@ No prominent researcher has published a guide on citation management — because
 
 - [**rebiber**](https://github.com/yuchenlin/rebiber) — Normalizes arXiv BibTeX with DBLP/ACL data. make-bib's local database is inspired by rebiber's approach.
 - [**SimBiber**](https://github.com/MLNLP-World/SimBiber) — Simplifies BibTeX to minimal fields.
+- [**bibtex-dblp**](https://github.com/volkm/bibtex-dblp) — Python tool to retrieve BibTeX entries from DBLP.
+- [**Generating BibTeX from DOIs via DBLP**](https://www.joachim-breitner.de/blog/806-Generating_bibtex_bibliographies_from_DOIs_via_DBLP) — Blog post on using DBLP as a DOI-to-BibTeX resolver.
