@@ -39,6 +39,32 @@ SourceData = dict[str, Any]
 
 
 # =============================================================================
+# Local DBLP integration
+# =============================================================================
+
+_dblp_local = None
+
+
+def _get_dblp_local():
+    """Import co-located dblp_local module."""
+    global _dblp_local
+    if _dblp_local is None:
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent))
+        import dblp_local
+        _dblp_local = dblp_local
+    return _dblp_local
+
+
+def _dblp_local_search(title: str) -> dict[str, Any] | None:
+    """Search local DBLP DB by title. Returns structured hit or None."""
+    try:
+        return _get_dblp_local().search(title)
+    except (ImportError, Exception):
+        return None
+
+
+# =============================================================================
 # Rate Limiting
 # =============================================================================
 
@@ -52,44 +78,37 @@ class RateLimiter:
 
     def wait(self) -> None:
         now = time.monotonic()
-        wait = self.min_interval - (now - self._last)
-        if wait > 0:
-            time.sleep(wait)
+        elapsed = now - self._last
+        if elapsed < self.min_interval:
+            time.sleep(self.min_interval - elapsed)
         self._last = time.monotonic()
 
 
 def _s2_interval() -> float:
-    """S2: 1 rps with API key, 3s without (shared 5000 req/5min pool)."""
-    return 1.0 if os.environ.get("SEMANTIC_SCHOLAR_API_KEY") else 3.0
+    return 0.2 if os.environ.get("SEMANTIC_SCHOLAR_API_KEY") else 1.1
 
 
 _RATE_LIMITERS: dict[str, RateLimiter] = {
     "api.semanticscholar.org": RateLimiter(_s2_interval()),
-    "api.crossref.org": RateLimiter(0.1),  # Polite pool: 10 rps (mailto required)
-    "dblp.org": RateLimiter(1.0),  # No official limit; polite 1 rps
-    "export.arxiv.org": RateLimiter(3.0),  # Recommended: ≤1 req/3s
-    "api.openreview.net": RateLimiter(1.0),  # No official limit
-    "api2.openreview.net": RateLimiter(1.0),
-    "aclanthology.org": RateLimiter(1.0),  # Static site; polite 1 rps
+    "api.crossref.org": RateLimiter(0.5),
+    "dblp.org": RateLimiter(1.1),
+    "export.arxiv.org": RateLimiter(3.5),
+    "api.openreview.net": RateLimiter(0.5),
+    "api2.openreview.net": RateLimiter(0.5),
+    "aclanthology.org": RateLimiter(0.5),
 }
 
 
 def _rate_limit(url: str) -> None:
-    """Wait if needed to respect per-domain rate limits."""
-    from urllib.parse import urlparse
-
-    host = urlparse(url).hostname or ""
-    limiter = _RATE_LIMITERS.get(host)
-    if limiter:
-        limiter.wait()
+    for domain, limiter in _RATE_LIMITERS.items():
+        if domain in url:
+            limiter.wait()
+            return
 
 
 # =============================================================================
 # Helpers
 # =============================================================================
-
-
-_PAPER_ID_TYPES = ("arxiv", "doi", "openreview")
 
 
 @dataclass(frozen=True)
@@ -102,6 +121,8 @@ class PaperId:
         openreview:rsHxs0YDor
     """
 
+    TYPES = ("arxiv", "doi", "openreview")
+
     type: Literal["arxiv", "doi", "openreview"]
     value: str
 
@@ -111,14 +132,13 @@ class PaperId:
         if ":" not in s:
             raise ValueError(
                 f"Missing type prefix in {s!r}. "
-                f"Expected format: {{type}}:{{value}} where type is one of {_PAPER_ID_TYPES}"
+                f"Expected format: {{type}}:{{value}} where type is one of {cls.TYPES}"
             )
         type_str, value = s.split(":", 1)
-        if type_str not in _PAPER_ID_TYPES:
-            raise ValueError(f"Unknown type {type_str!r}. Expected one of {_PAPER_ID_TYPES}")
+        if type_str not in cls.TYPES:
+            raise ValueError(f"Unknown type {type_str!r}. Expected one of {cls.TYPES}")
         if not value:
             raise ValueError("Empty value after prefix")
-        # Strip arXiv version suffix (e.g. "1706.03762v7" → "1706.03762")
         if type_str == "arxiv":
             value = re.sub(r"v\d+$", "", value)
         return cls(type_str, value)  # type: ignore[arg-type]
@@ -136,13 +156,8 @@ class PaperId:
     def to_ids(self) -> dict[str, str | None]:
         """Extract known IDs directly from the parsed input (no API call)."""
         ids: dict[str, str | None] = {
-            "doi": None,
-            "arxiv_id": None,
-            "acl_id": None,
-            "dblp_key": None,
-            "openreview_id": None,
-            "title": None,
-            "venue": None,
+            "doi": None, "arxiv_id": None, "acl_id": None,
+            "dblp_key": None, "openreview_id": None, "title": None, "venue": None,
         }
         match self.type:
             case "arxiv":
@@ -253,39 +268,40 @@ def fetch_crossref(client: httpx.Client, doi: str, *, raw: bool = False) -> Sour
             "volume": msg.get("volume"),
             "issue": msg.get("issue"),
             "publisher": msg.get("publisher"),
+            "event": msg.get("event"),
         }
     return {"source": "crossref", "request": req, "status": "ok", "response": response}
 
 
-def fetch_dblp(client: httpx.Client, dblp_key: str, *, raw: bool = False) -> SourceData:
-    """Fetch DBLP record by exact key via XML endpoint."""
-    url = f"https://dblp.org/rec/{dblp_key}.xml"
-    req = {"url": url}
+def fetch_dblp(client: httpx.Client, dblp_key: str, *, raw: bool = False, title: str | None = None) -> SourceData:
+    """Fetch DBLP record. Tries local DB by title first, then .bib URL by key."""
+    # Try local DB by title if available (more reliable than key from S2)
+    if title:
+        local = _dblp_local_search(title)
+        if local:
+            return {
+                "source": "dblp",
+                "request": {"method": "local_db", "title": title},
+                "status": "ok",
+                "response": local if not raw else {"bibtex": local["bibtex"]},
+            }
+
+    # Fall back to DBLP API by key
+    bib_url = f"https://dblp.org/rec/{dblp_key}.bib"
+    req = {"url": bib_url}
+    bibtex: str | None = None
+
     try:
-        resp = _get(client, url)
-        if not resp:
-            return {"source": "dblp", "request": req, "status": "no_match"}
-    except httpx.HTTPError as e:
-        return _error("dblp", req, str(e))
+        bib_resp = _get(client, bib_url)
+        if bib_resp:
+            bibtex = bib_resp.text.strip()
+    except httpx.HTTPError:
+        pass
 
-    if raw:
-        return {"source": "dblp", "request": req, "status": "ok", "response": {"xml": resp.text}}
+    if not bibtex:
+        return _error("dblp", req, "DBLP API unavailable and key not in local DB")
 
-    root = ET.fromstring(resp.text)
-    entry = root[0] if len(root) > 0 else None
-    if entry is None:
-        return _error("dblp", req, "empty XML response")
-
-    info: dict[str, Any] = {"key": dblp_key, "type": entry.tag}
-    authors = []
-    for child in entry:
-        if child.tag == "author":
-            authors.append(child.text or "")
-        elif child.text:
-            info[child.tag] = child.text
-    if authors:
-        info["authors"] = {"author": [{"text": a} for a in authors]}
-
+    info: dict[str, Any] = {"key": dblp_key, "bibtex": bibtex}
     return {"source": "dblp", "request": req, "status": "ok", "response": info}
 
 
@@ -298,9 +314,9 @@ def fetch_arxiv(client: httpx.Client, arxiv_id: str, *, raw: bool = False) -> So
     req = {"url": url, "params": params}
 
     try:
-        _rate_limit(url)
-        resp = client.get(url, params=params)
-        resp.raise_for_status()
+        resp = _get(client, url, params=params)
+        if not resp:
+            return _error("arxiv", req, "not found")
     except httpx.HTTPError as e:
         return _error("arxiv", req, str(e))
 
@@ -396,11 +412,9 @@ def fetch_acl(client: httpx.Client, acl_id: str, *, raw: bool = False) -> Source
     req = {"url": url}
 
     try:
-        _rate_limit(url)
-        resp = client.get(url, follow_redirects=True)
-        if resp.status_code == 404:
+        resp = _get(client, url)
+        if not resp:
             return {"source": "acl_anthology", "request": req, "status": "no_match"}
-        resp.raise_for_status()
     except httpx.HTTPError as e:
         return _error("acl_anthology", req, str(e))
 
@@ -412,8 +426,38 @@ def fetch_acl(client: httpx.Client, acl_id: str, *, raw: bool = False) -> Source
 # =============================================================================
 
 
+def _extract_paper_id_from_ee(ee: str | None) -> str | None:
+    """Extract a paper_id from a DBLP ee (external URL) field."""
+    if not ee:
+        return None
+    # DOI link
+    m = re.match(r"https?://doi\.org/(10\..+)", ee)
+    if m:
+        return f"doi:{m.group(1)}"
+    # OpenReview link
+    m = re.match(r"https?://openreview\.net/forum\?id=([^&]+)", ee)
+    if m:
+        return f"openreview:{m.group(1)}"
+    # arXiv link
+    m = re.match(r"https?://arxiv\.org/abs/(\d+\.\d+)", ee)
+    if m:
+        return f"arxiv:{m.group(1)}"
+    return None
+
+
 def search_dblp(client: httpx.Client, title: str) -> SourceData:
-    """Search DBLP by title. Returns all hits — does NOT pick one."""
+    """Search DBLP by title. Tries local DB first, then falls back to API."""
+    # Try local DB first
+    local = _dblp_local_search(title)
+    if local:
+        return {
+            "source": "dblp",
+            "request": {"method": "local_db"},
+            "status": "ok",
+            "match_type": "local",
+            "response": {"query": title, "total": 1, "hits": [local]},
+        }
+
     url = "https://dblp.org/search/publ/api"
     params = {"q": title, "format": "json", "h": 10}
     req = {"url": url, "params": params}
@@ -432,17 +476,22 @@ def search_dblp(client: httpx.Client, title: str) -> SourceData:
         raw_authors = info.get("authors", {}).get("author", [])
         if not isinstance(raw_authors, list):
             raw_authors = [raw_authors]
-        results.append(
-            {
-                "title": (info.get("title") or "").rstrip("."),
-                "venue": info.get("venue"),
-                "year": info.get("year"),
-                "type": info.get("type"),
-                "key": info.get("key"),
-                "authors": [a.get("text", "") if isinstance(a, dict) else str(a) for a in raw_authors],
-                "url": info.get("ee"),
-            }
-        )
+        ee = info.get("ee")
+        if isinstance(ee, list):
+            ee = ee[0] if ee else None
+        entry: dict[str, Any] = {
+            "title": (info.get("title") or "").rstrip("."),
+            "venue": info.get("venue"),
+            "year": info.get("year"),
+            "type": info.get("type"),
+            "key": info.get("key"),
+            "authors": [a.get("text", "") if isinstance(a, dict) else str(a) for a in raw_authors],
+            "url": ee,
+        }
+        pid = _extract_paper_id_from_ee(ee)
+        if pid:
+            entry["paper_id"] = pid
+        results.append(entry)
 
     return {
         "source": "dblp",
@@ -485,20 +534,20 @@ def search_openreview(client: httpx.Client, title: str) -> SourceData:
         for note in notes:
             hit = _or_note_to_dict(note, raw=False)
             hit["_api"] = version
+            forum_id = note.get("id") or note.get("forum")
+            if forum_id:
+                hit["paper_id"] = f"openreview:{forum_id}"
             all_hits.append(hit)
 
     # Deduplicate by forum ID
     seen: set[str] = set()
     unique: list[dict] = []
     for hit in all_hits:
-        fid = hit.get("id") or hit.get("forum", "")
-        if fid and fid in seen:
+        fid = hit.get("forum") or hit.get("id") or ""
+        if fid in seen:
             continue
         seen.add(fid)
         unique.append(hit)
-
-    if not unique:
-        return _error("openreview", requests, "no results from any endpoint")
 
     return {
         "source": "openreview",
@@ -527,18 +576,20 @@ def search_crossref(client: httpx.Client, title: str) -> SourceData:
     for item in items:
         authors = [f"{a.get('given', '')} {a.get('family', '')}".strip() for a in item.get("author", [])]
         titles = item.get("title", [])
-        results.append(
-            {
-                "title": titles[0] if titles else "—",
-                "container-title": (item.get("container-title") or ["—"])[0],
-                "type": item.get("type"),
-                "DOI": item.get("DOI"),
-                "year": str(item.get("issued", {}).get("date-parts", [[None]])[0][0] or "—"),
-                "authors": authors,
-                "page": item.get("page"),
-                "volume": item.get("volume"),
-            }
-        )
+        doi = item.get("DOI")
+        entry: dict[str, Any] = {
+            "title": titles[0] if titles else "—",
+            "container-title": (item.get("container-title") or ["—"])[0],
+            "type": item.get("type"),
+            "DOI": doi,
+            "year": str(item.get("issued", {}).get("date-parts", [[None]])[0][0] or "—"),
+            "authors": authors,
+            "page": item.get("page"),
+            "volume": item.get("volume"),
+        }
+        if doi:
+            entry["paper_id"] = f"doi:{doi}"
+        results.append(entry)
 
     return {
         "source": "crossref",
@@ -556,9 +607,9 @@ def search_arxiv(client: httpx.Client, title: str) -> SourceData:
     req = {"url": url, "params": params}
 
     try:
-        _rate_limit(url)
-        resp = client.get(url, params=params)
-        resp.raise_for_status()
+        resp = _get(client, url, params=params)
+        if not resp:
+            return _error("arxiv", req, "not found")
     except httpx.HTTPError as e:
         return _error("arxiv", req, str(e))
 
@@ -570,16 +621,18 @@ def search_arxiv(client: httpx.Client, title: str) -> SourceData:
             continue
         authors = [el.findtext("atom:name", "", _ARXIV_NS) for el in entry.findall("atom:author", _ARXIV_NS)]
         categories = [el.get("term", "") for el in entry.findall("arxiv:primary_category", _ARXIV_NS)]
-        results.append(
-            {
-                "title": " ".join((entry.findtext("atom:title", "", _ARXIV_NS) or "").split()),
-                "id": entry_id,
-                "authors": authors,
-                "published": entry.findtext("atom:published", "", _ARXIV_NS)[:10],
-                "categories": categories,
-                "comment": entry.findtext("arxiv:comment", None, _ARXIV_NS),
-            }
-        )
+        arxiv_match = re.search(r'arxiv\.org/abs/(\d+\.\d+)', entry_id)
+        hit: dict[str, Any] = {
+            "title": " ".join((entry.findtext("atom:title", "", _ARXIV_NS) or "").split()),
+            "id": entry_id,
+            "authors": authors,
+            "published": entry.findtext("atom:published", "", _ARXIV_NS)[:10],
+            "categories": categories,
+            "comment": entry.findtext("arxiv:comment", None, _ARXIV_NS),
+        }
+        if arxiv_match:
+            hit["paper_id"] = f"arxiv:{arxiv_match.group(1)}"
+        results.append(hit)
 
     return {
         "source": "arxiv",
@@ -607,17 +660,20 @@ def search_s2(client: httpx.Client, title: str) -> SourceData:
     results = []
     for paper in data:
         ext = paper.get("externalIds") or {}
-        results.append(
-            {
-                "title": paper.get("title"),
-                "venue": paper.get("venue"),
-                "year": paper.get("year"),
-                "authors": [a.get("name", "") for a in paper.get("authors", [])],
-                "DOI": ext.get("DOI"),
-                "ArXiv": ext.get("ArXiv"),
-                "DBLP": ext.get("DBLP"),
-            }
-        )
+        entry: dict[str, Any] = {
+            "title": paper.get("title"),
+            "venue": paper.get("venue"),
+            "year": paper.get("year"),
+            "authors": [a.get("name", "") for a in paper.get("authors", [])],
+            "DOI": ext.get("DOI"),
+            "ArXiv": ext.get("ArXiv"),
+            "DBLP": ext.get("DBLP"),
+        }
+        if ext.get("DOI"):
+            entry["paper_id"] = f"doi:{ext['DOI']}"
+        elif ext.get("ArXiv"):
+            entry["paper_id"] = f"arxiv:{ext['ArXiv']}"
+        results.append(entry)
 
     return {
         "source": "s2",
@@ -681,11 +737,7 @@ ALL_SOURCES = list(_FETCH_SOURCES)
 
 
 def _extract_ids(s2_data: dict) -> dict[str, str | None]:
-    """Extract external IDs from S2 response into a flat lookup.
-
-    Note: S2 does not provide OpenReview forum IDs in externalIds.
-    OpenReview ID is filled by PaperId.to_ids() merge in _resolve_ids.
-    """
+    """Extract external IDs from S2 response into a flat lookup."""
     ext = s2_data.get("externalIds") or {}
     return {
         "doi": ext.get("DOI"),
@@ -709,7 +761,7 @@ def _resolve_ids(client: httpx.Client, pid: PaperId, log: Console) -> tuple[Sour
         log.print("[yellow]  S2 resolution failed, extracting IDs from input…[/]")
         ids = pid.to_ids()
 
-    # Merge input-derived IDs to fill gaps (e.g. OpenReview ID from input)
+    # Merge input-derived IDs to fill gaps
     for k, v in pid.to_ids().items():
         if v and not ids.get(k):
             ids[k] = v
@@ -754,13 +806,23 @@ def fetch_all(
 
             id_field = spec["id_field"]
             id_val = ids.get(id_field)
-            if not id_val:
+
+            # DBLP: pass title for local DB lookup (more reliable than key from S2)
+            extra_kwargs: dict[str, Any] = {}
+            if name == "dblp" and ids.get("title"):
+                extra_kwargs["title"] = ids["title"]
+
+            if not id_val and not extra_kwargs:
                 results.append(_skipped(name, f"no {id_field}"))
                 log.print(f"  [dim]{name}: skipped (no {id_field})[/]")
                 continue
 
             log.print(f"  [dim]{name}: fetching…[/]", end="")
-            result = spec["fn"](client, id_val, raw=raw)
+            if id_val:
+                result = spec["fn"](client, id_val, raw=raw, **extra_kwargs)
+            else:
+                # DBLP with title but no key — try local only
+                result = spec["fn"](client, "", raw=raw, **extra_kwargs)
             results.append(result)
 
             status = result["status"]
@@ -776,45 +838,23 @@ def fetch_all(
 
 def search_one(
     source: str,
-    query: str,
+    title: str,
     log: Console,
-    *,
-    title: bool = False,
 ) -> list[SourceData]:
-    """Search a single source by title.
-
-    If title=True, query is used directly as the search title.
-    Otherwise, query is treated as a paper ID and resolved to a title via S2.
-    """
+    """Search a single source by title."""
     search_fn = _SEARCH_SOURCES.get(source)
     if not search_fn:
         return [_error(source, {}, f"unknown search source: {source}")]
 
-    results: list[SourceData] = []
+    log.print(f'[dim]Searching by title: "{title}"[/]\n')
 
     with httpx.Client(timeout=30.0) as client:
-        if title:
-            search_title = query
-            log.print(f'[dim]Searching by title: "{search_title}"[/]\n')
-        else:
-            pid = PaperId.parse(query)
-            s2, ids = _resolve_ids(client, pid, log)
-            results.append(s2)
-            search_title = ids.get("title")
-            if not search_title:
-                log.print(
-                    "[red]  No title available for search. "
-                    "Provide a paper ID that S2 can resolve, or pass a plain title instead.[/]"
-                )
-                return results
-
         log.print(f"  [dim]{source}: searching…[/]", end="")
-        result = search_fn(client, search_title)
-        results.append(result)
+        result = search_fn(client, title)
         n = result.get("response", {}).get("total", 0) if result["status"] == "ok" else 0
         log.print(f" [green]{n} results[/]" if result["status"] == "ok" else " [red]error[/]")
 
-    return results
+    return [result]
 
 
 # =============================================================================
@@ -827,13 +867,12 @@ def _format_url(req: dict) -> str:
     params = req.get("params")
     if params:
         from urllib.parse import urlencode
-
         return url + "?" + urlencode(params)
     return url
 
 
 def _format_request(req: dict | list, console: Console) -> None:
-    """Print request info, handling both single dict and list of requests."""
+    """Print request info, handling single dict, list of requests, and local DB."""
     if isinstance(req, list):
         for r in req:
             line = f"GET {_format_url(r)}"
@@ -844,6 +883,8 @@ def _format_request(req: dict | list, console: Console) -> None:
             if err:
                 line += f"  → {err}"
             console.print(f"  [dim]{line}[/]")
+    elif req.get("method"):
+        console.print(f"  [dim]{req['method']}" + (f" (title: {req['title']})" if req.get("title") else "") + "[/]")
     elif req:
         console.print(f"  [dim]GET {_format_url(req)}[/]")
 
@@ -904,6 +945,24 @@ def display_rich(results: list[SourceData], console: Console) -> None:
         console.print()
 
 
+# -- Search display: data-driven rendering --
+
+_SEARCH_DISPLAY_FIELDS: dict[str, list[tuple[str, str]]] = {
+    "dblp": [("venue", "venue"), ("year", "year"), ("key", "key")],
+    "openreview": [("venue", "venue"), ("invitation", "invitation")],
+    "crossref": [("container-title", "container"), ("year", "year"), ("type", "type")],
+    "arxiv": [("published", "published"), ("categories", "categories")],
+    "s2": [("venue", "venue"), ("year", "year")],
+}
+
+_SEARCH_ID_FIELDS: dict[str, list[str]] = {
+    "openreview": ["url"],
+    "crossref": ["DOI"],
+    "arxiv": ["id"],
+    "s2": ["DOI", "ArXiv", "DBLP"],
+}
+
+
 def display_search(results: list[SourceData], console: Console) -> None:
     """Display search results as numbered lists."""
     console.print()
@@ -934,6 +993,9 @@ def display_search(results: list[SourceData], console: Console) -> None:
             console.print("  [yellow]no results[/]\n")
             continue
 
+        display_fields = _SEARCH_DISPLAY_FIELDS.get(name, [])
+        id_fields = _SEARCH_ID_FIELDS.get(name, [])
+
         for i, hit in enumerate(hits, 1):
             title = hit.get("title", "—")
             authors_list = hit.get("authors", [])
@@ -943,39 +1005,28 @@ def display_search(results: list[SourceData], console: Console) -> None:
 
             console.print(f"  [bold][{i}][/] {title}")
 
-            # Source-specific detail line
-            if name == "dblp":
-                console.print(
-                    f"      [cyan]venue[/]={hit.get('venue', '—')}  "
-                    f"[cyan]year[/]={hit.get('year', '—')}  [cyan]key[/]={hit.get('key', '—')}"
-                )
-            elif name == "openreview":
-                console.print(f"      [cyan]venue[/]={hit.get('venue', '—')}")
-                console.print(f"      [cyan]invitation[/]={hit.get('invitation', '—')}")
-                if hit.get("url"):
-                    console.print(f"      [dim]{hit['url']}[/]")
-            elif name == "crossref":
-                console.print(
-                    f"      [cyan]container[/]={hit.get('container-title', '—')}  "
-                    f"[cyan]year[/]={hit.get('year', '—')}  [cyan]type[/]={hit.get('type', '—')}"
-                )
-                if hit.get("DOI"):
-                    console.print(f"      [dim]DOI: {hit['DOI']}[/]")
-            elif name == "arxiv":
-                console.print(
-                    f"      [cyan]published[/]={hit.get('published', '—')}  "
-                    f"[cyan]categories[/]={', '.join(hit.get('categories', []))}"
-                )
-                if hit.get("id"):
-                    console.print(f"      [dim]{hit['id']}[/]")
-            elif name == "s2":
-                console.print(f"      [cyan]venue[/]={hit.get('venue', '—')}  [cyan]year[/]={hit.get('year', '—')}")
-                ids = [f"{k}={v}" for k, v in hit.items() if k in ("DOI", "ArXiv", "DBLP") and v]
-                if ids:
-                    console.print(f"      [dim]{', '.join(ids)}[/]")
+            # Render declared display fields
+            fields_str = "  ".join(
+                f"[cyan]{label}[/]={_format_field_value(hit.get(key, '—'))}"
+                for key, label in display_fields
+            )
+            if fields_str:
+                console.print(f"      {fields_str}")
+
+            # Render ID fields
+            ids = [f"{k}={hit[k]}" for k in id_fields if hit.get(k)]
+            if ids:
+                console.print(f"      [dim]{', '.join(ids)}[/]")
 
             console.print(f"      [dim]{authors}[/]")
             console.print()
+
+
+def _format_field_value(val: Any) -> str:
+    """Format a field value for display."""
+    if isinstance(val, list):
+        return ", ".join(str(v) for v in val)
+    return str(val) if val else "—"
 
 
 # =============================================================================
@@ -1094,14 +1145,12 @@ def fetch(
 @app.command()
 def search(
     source: Annotated[SearchSource, typer.Argument(help="search source")],
-    query: Annotated[str, typer.Argument(help="arxiv:ID, doi:ID, openreview:ID, or plain title")],
+    query: Annotated[str, typer.Argument(help="paper title to search for")],
     json_output: Annotated[bool, typer.Option("--json", help="output as JSON array with _meta per source")] = False,
 ) -> None:
-    """Search a single source. Auto-detects paper ID (type:value) vs plain title."""
+    """Search a single source by title."""
     log = Console(stderr=True)
-    # Auto-detect: if query has a valid type prefix, treat as ID; otherwise as title
-    is_title = ":" not in query or query.split(":", 1)[0] not in _PAPER_ID_TYPES
-    results = search_one(source.value, query, log, title=is_title)
+    results = search_one(source.value, query, log)
     if json_output:
         display_json(results)
     else:

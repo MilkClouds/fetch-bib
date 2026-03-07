@@ -1,100 +1,123 @@
 ---
 name: make-bib
-description: Generate accurate BibTeX for a paper by fetching metadata from multiple academic sources
+description: Generate accurate BibTeX for a paper
 ---
 
-# make-bib: Generate accurate BibTeX for a paper
+# make-bib
 
-$ARGUMENTS — `arxiv:ID`, `doi:ID`, `openreview:ID`, title in quotes, or abbreviation (e.g. "ResNet")
+$ARGUMENTS — `arxiv:ID`, `doi:ID`, title in quotes, or abbreviation
 
-The script is at `${CLAUDE_SKILL_DIR}/scripts/paper_sources.py` (run via `uv run ${CLAUDE_SKILL_DIR}/scripts/paper_sources.py`).
+For deeper background on source characteristics, see `${CLAUDE_SKILL_DIR}/citation-guide.md`.
 
-## Steps
+## Rules
 
-0. If the input has no associated paper (e.g. software package, GitHub repo, book), ask the user how to cite it via `AskUserQuestion`.
+### Hard rules
 
-1. **Find the venue.** If a venue exists, failing to find it is unacceptable.
+- **Entry type**: conference/workshop → `@inproceedings`. Journal → `@article`. Preprint → per `[arxiv].entry_type`.
+- **Workshop disclosure**: booktitle must contain "Workshop". Using only the parent conference name is misrepresentation.
+- **Single source of truth**: all fields in one entry come from the same source. Never mix.
+- **Honest status**: never cite a preprint as published or vice versa.
+- **Discovery ≠ citation**: S2 and Google Scholar metadata are never used in BibTeX fields.
 
-   **Phase A — Obtain ID:** Get at least one paper ID and the canonical title.
-   - ID input (`arxiv:`, `doi:`, `openreview:`): use directly.
-   - Title/abbreviation input: `search s2 "<query>"` → if multiple candidates, use `AskUserQuestion` to let the user pick → obtain ID.
+### Guidance
 
-   **Phase B — Confirm venue:** Determine the highest-priority venue.
-   - `fetch --json <ID>` → check S2 `venue` and `externalIds`.
-   - Always cross-search by title, even when S2 reports a clear venue:
-     - `search openreview "<full paper title>"` — use the complete title, not abbreviations.
-     - `search dblp "<title>"` — check for DBLP listing.
-     - If multiple or ambiguous results, use `AskUserQuestion` to let the user pick.
-     - Record all IDs found across searches. Step 2 picks the highest-priority source.
-     - If nothing found after all searches: confirmed as arXiv preprint.
-   - Use `fetch` and `search` as many times as needed. Be thorough.
+- **Source priority**: publisher/anthology > curated DB > preprint server. Customizable in `[sources].bibtex`.
+- **Publication check**: S2 is a starting point only. Confirm via curated DB (CS: DBLP), review platform (OpenReview), or publisher page.
+- **Provenance**: every entry gets a `% source:` annotation. Lower-confidence sources (CrossRef, manual) add `— verify fields`.
 
-2. **Generate BibTeX from a single source of truth** — never mix fields from multiple sources.
-   Pick the first matching official source and use it exclusively:
-   - **OpenReview `_bibtex`**: If an OpenReview ID was found, `fetch openreview:<id>` → use the `_bibtex` field.
-   - **ACL Anthology**: If the DOI starts with `10.18653/`, fetch the ACL Anthology BibTeX.
-   - **arXiv**: If the paper is an arXiv preprint, `fetch arxiv:<id>` → construct from arXiv metadata.
-   If an official source is used, go to step 4. Otherwise go to step 3.
+## Tools
 
-3. **Fallback: construct BibTeX with human verification.** Use DBLP, CrossRef, and other aggregators as reference data. Present all available source data, and use `AskUserQuestion` (2–4 options with `label` + `description`) for every ambiguous field. Add a BibTeX comment:
-   ```
-   % NOTE: not from official source — double-check
-   ```
+`uv run ${CLAUDE_SKILL_DIR}/scripts/paper_sources.py`:
+- `fetch <id>` — ID-based fetch from all sources. `--json` for structured output.
+- `search <source> "<title>"` — title search (dblp, crossref, arxiv, openreview, s2).
 
-4. **Apply `bibstyle.toml`** from the project root. If missing, ask via `AskUserQuestion` and create it. See schema below. Reformat the BibTeX to match user preferences (fields, venue style, author limits, key format, etc.).
+`uv run ${CLAUDE_SKILL_DIR}/scripts/dblp_local.py`:
+- `sync` — download/update local DBLP database.
+- `search "<title>"` — search local DB by exact normalized title.
 
-5. **Annotate** the BibTeX with a comment above the entry:
-   ```
-   % source: <paper_id> via <source_name>
-   ```
-   Examples:
-   - `% source: openreview:0JtNyaHbNx via openreview` — OpenReview `_bibtex`
-   - `% source: doi:10.18653/v1/N19-1423 via acl_anthology` — ACL Anthology BibTeX
-   - `% source: dblp:conf/cvpr/HeZRS16 via dblp` — DBLP (fallback)
-   - `% source: doi:10.1038/nature14539 via crossref` — CrossRef (fallback)
-   - `% source: arxiv:1706.03762 via arxiv` — arXiv metadata
+Direct BibTeX URLs (via WebFetch or curl):
+- **DBLP**: `https://dblp.org/rec/{key}.bib`
+- **ACL Anthology**: `https://aclanthology.org/{id}.bib`
+- **PMLR**: `https://proceedings.mlr.press/v{volume}/{key}.html` — BibTeX embedded in page (covers ICML, AISTATS, CoRL, COLT, ALT, UAI, etc.)
 
-6. Output ONLY the annotated BibTeX entry.
+Use `AskUserQuestion` when multiple candidates exist or venue is ambiguous.
 
-**Hard rules**:
-- Entry types: `@inproceedings` for conference/workshop, `@article` for journal/arXiv, `@misc` for software/datasets.
-- Venue precedence: Journal > Conference > Workshop > arXiv
-- Protect proper nouns/acronyms: `{BERT}`, `{B}ayesian` — don't over-brace.
-- Authors: `Last, First and Last, First`. Remove DBLP disambiguation numbers.
-- Authors and all other fields must come from the same official source (step 2).
-- When truncating authors with `and others`, count `and` separators mechanically.
+## Workflow
 
-**Pitfalls** (learned from real errors):
-- S2 is only reliable for venue/ID discovery. Its author names can map to wrong people (e.g. "Qiang Liu" → "Qian Liu"), and its venue field omits track-level detail (e.g. "NeurIPS" for both main conference and workshops).
-- OpenReview search results may include DBLP mirror notes (`invitation: "DBLP.org/-/Record"`). These lack track-level venue info. When picking a forum ID to fetch, prefer notes whose `invitation` contains the venue domain (e.g. `NeurIPS.cc/`, `ICLR.cc/`).
+### 1. Find the paper
 
-## `bibstyle.toml` schema and defaults
+Non-paper input (software, dataset, book) → `AskUserQuestion` for citation format. Stop.
+
+ID input → `fetch`. Title/abbreviation → `search s2` → get IDs → `fetch`.
+
+### 2. Determine publication status
+
+`fetch --json <ID>` for S2 venue and external IDs (DOI, DBLP key, ACL ID, arXiv ID).
+
+Confirm using `[sources].verify` in order:
+- **Curated DB** (CS: `search dblp "<exact title>"`) — if listed, formally published.
+- **Review platform** (`search openreview "<exact title>"`) — confirms acceptance. Check `invitation` for "Workshop" vs main track.
+- **Publisher page** — presence in ACL Anthology, ACM DL, PMLR, etc. is definitive.
+  - PMLR conferences (ICML, AISTATS, CoRL, COLT, UAI, ALT): search `proceedings.mlr.press` for the paper.
+
+No venue confirmed → arXiv preprint.
+
+### 3. Get BibTeX
+
+Follow `[sources].bibtex` priority. Use the first source that has data.
+
+Default CS lookup:
+
+| Source | When | How |
+|--------|------|-----|
+| **ACL Anthology** | DOI prefix `10.18653/` | `https://aclanthology.org/{id}.bib` |
+| **PMLR** | PMLR conference (ICML, CoRL, AISTATS, COLT, UAI, ALT) | WebFetch `https://proceedings.mlr.press/v{volume}/{key}.html` → extract BibTeX |
+| **DBLP** | DBLP key exists | `https://dblp.org/rec/{key}.bib` (also searched via local DB by title) |
+| **CrossRef** | DOI, no source above | Construct: `title`→title, `author[].family/given`→author, `container-title`→journal/booktitle, `published.date-parts`→year |
+| **arXiv** | No formal venue | Construct `@article` per `[arxiv]` settings |
+
+### 4. Validate, format, and output
+
+Check hard rules. Apply `bibstyle.toml`:
+- **Key**: per `[key].style` — `lastname_year` (`vaswani2017`), `lastname_venue_year` (`vaswani_neurips2017`), `acl` (`devlin-etal-2019-bert`)
+- **Venue**: per `[venue].style` — `abbreviated` or `full`; `proceedings_prefix` adds "Proceedings of"
+- **Authors**: truncate after `[authors].max` with `and others` (0 = no limit)
+- **Fields**: include only those in `[fields]` for the entry type
+
+Annotate above every entry with provenance and trust:
+```
+% source: dblp:conf/cvpr/HeZRS16 via dblp
+% source: doi:10.xxx via crossref — verify fields
+```
+
+Output the annotated BibTeX entry only.
+
+## `bibstyle.toml` schema
 
 ```toml
+[sources]
+# Sources to check publication status (checked in order)
+verify = ["s2", "dblp", "openreview"]
+# Sources to get BibTeX from (tried in priority order, highest first)
+bibtex = ["acl_anthology", "pmlr", "dblp", "crossref", "arxiv"]
+# Available: acl_anthology, pmlr, dblp, openreview, crossref, arxiv, inspire_hep, ads, pubmed
+
 [fields]
-# Which fields to include per entry type.
-conference = ["title", "author", "booktitle", "year"]  # minimal
+conference = ["title", "author", "booktitle", "year"]
 journal = ["title", "author", "journal", "year", "volume", "number"]
-# Other fields you can add: "pages", "doi", "url", "publisher", "address", "editor", "month"
+# Optional: "pages", "doi", "url", "publisher", "address", "editor", "month"
 
 [authors]
-# Max authors before truncating with "and others". 0 = no limit.
-max = 0
+max = 0  # 0 = unlimited
 
 [venue]
-# "abbreviated" (NeurIPS) or "full" (Advances in Neural Information Processing Systems)
-style = "abbreviated"
-# Whether to prefix with "Proceedings of"
-proceedings_prefix = false
+style = "abbreviated"       # "abbreviated" or "full"
+proceedings_prefix = false   # true: "Proceedings of NeurIPS"
 
 [key]
-# "lastname_year" (vaswani2017), "lastname_venue_year" (vaswani_neurips2017), "acl" (devlin-etal-2019-bert)
-style = "lastname_year"
+style = "lastname_year"     # "lastname_year", "lastname_venue_year", "acl"
 
 [arxiv]
-# Entry type for arXiv preprints: "article" or "misc"
-entry_type = "article"
-# Journal field format. {id} is replaced with the arXiv ID.
-journal_format = "arXiv preprint arXiv:{id}"
-# Alternatives: "CoRR", or use eprint/archiveprefix fields instead
+entry_type = "article"                      # "article" or "misc"
+journal_format = "arXiv preprint arXiv:{id}" # or "CoRR"
 ```
