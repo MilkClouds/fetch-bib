@@ -42,7 +42,7 @@ Every step is mandatory. Skipping any step is a failure.
 
 **`SEMANTIC_SCHOLAR_API_KEY`**:
 - **Set** → proceed.
-- **Not set** → `AskUserQuestion` to request the key (via `export SEMANTIC_SCHOLAR_API_KEY=...` or in a `.env` file in the working directory). If the user declines, proceed (pass `--allow-no-s2-key` as needed) but strongly recommend setting it: without the key, `fetch`/`search s2` are blocked by default, and unauthenticated requests share a global pool with heavy throttling (3s fallback interval vs 1 req/s authenticated).
+- **Not set** → `AskUserQuestion` to request the key (via `export SEMANTIC_SCHOLAR_API_KEY=...` or in a `.env` file in the working directory). If the user declines, proceed (pass `--allow-no-s2-key` as needed) — but before continuing, warn the user explicitly: without the key, `fetch`/`search s2` are blocked by default, and unauthenticated requests share a global pool with heavy throttling (3s fallback interval vs 1 req/s authenticated).
 
 ### 1. Find the paper
 
