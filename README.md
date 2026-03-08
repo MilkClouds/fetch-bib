@@ -59,6 +59,39 @@ When something is ambiguous, it stops and asks — then goes deep to find the ri
 
 DBLP indexes this paper under its arXiv title ("Training Compute-Optimal Large Language Models"), but NeurIPS published it under a **different title** ("An empirical analysis of compute-optimal large language model training"). Opus 4.6 with make-bib exhausts DBLP lookups, falls through to the NeurIPS proceedings page, and uses the published title.
 
+**Bulk verification.** A real test: an LLM generated `references.bib` (47 entries) for a robotics paper using only web search — no make-bib, no source verification. Then we ran make-bib to verify every entry:
+
+```
+> /make-bib — verify all entries in references.bib
+
+  Step 1: 6 parallel agents dispatched, 8 entries each.
+          Checking against DBLP, arXiv, CrossRef, publisher pages...
+
+  Step 2: Results arrive. 14 of 49 entries have errors.
+
+  ✗ kim2024openvla
+    booktitle = {ICML}    ← LLM wrote this
+    booktitle = {CoRL}    ← actually published here. Wrong conference.
+
+  ✗ liu2025can — "What Can RL Bring to VLA Generalization?"
+    LLM authors:    Liu, Zhecheng / Gao, Zhehui / Wei, Yuting / Chen, Mingyuan ...
+    Actual authors: Liu, Jijia    / Gao, Feng   / Wei, Bingwen / Chen, Xinlei ...
+    All 8 given names were hallucinated.
+
+  ✗ wang2025vlatest — 4 of 6 author last names wrong
+  ✗ zhang2024vlabench — year wrong, 7 of 8 authors fabricated
+  ✗ perez2018film — pages 386–393, actually 3942–3951
+  ✗ wen2025tinyvla — 5 of 13 authors missing
+  ✗ hu2022lora — missing co-author, wrong last name
+  ✗ oxe2024 — listed as arXiv preprint, actually published at ICRA 2024
+  + 6 more entries with wrong venues, titles, or keys
+
+  Step 3: All 14 entries fixed. Source URLs added to all 49.
+          3 citation keys updated across main.tex and appendix.tex.
+```
+
+The LLM didn't fabricate papers — every entry pointed to a real paper. But it hallucinated the *metadata*: author names, conference venues, page numbers. These errors are nearly impossible to catch by eye, and exactly what make-bib's source verification is designed to find.
+
 ## Why this exists (and its limitations)
 
 LLMs hallucinate citations. This is not hypothetical — it is happening at scale in published research:
