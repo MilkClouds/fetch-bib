@@ -12,16 +12,16 @@ Each demo follows the same 3-step pipeline: scenario → cast → SVG.
 
 ```bash
 # 1. Generate asciinema cast from scenario
-echo "" | npx terminal-demo play docs/<NAME>-scenario.md --record docs/<NAME>.cast
+echo "" | npx terminal-demo play docs/demos/<NAME>-scenario.md --record docs/demos/<NAME>.cast
 
 # 2. Convert to animated SVG
-npx svg-term-cli --in docs/<NAME>.cast --out docs/<NAME>.svg \
+npx svg-term-cli --in docs/demos/<NAME>.cast --out docs/demos/<NAME>.svg \
   --window --width 85 --height <HEIGHT> --no-cursor
 
 # 3. Add 10s end pause (otherwise the animation loops instantly)
 python3 -c "
 import json, pathlib
-p = pathlib.Path('docs/<NAME>.cast')
+p = pathlib.Path('docs/demos/<NAME>.cast')
 lines = p.read_text().splitlines()
 last = json.loads(lines[-1])
 lines.append(json.dumps([last[0] + 10, 'o', ' ']))

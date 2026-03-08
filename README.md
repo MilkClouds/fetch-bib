@@ -12,7 +12,7 @@ A [Claude Code skill](https://code.claude.com/docs/en/skills) that fetches BibTe
 **Single paper fetch.** Google Scholar would give you arXiv 2023 for this paper. make-bib finds ICLR 2024:
 
 <p align="center">
-  <img src="docs/demo-streamingllm.svg" alt="make-bib StreamingLLM demo" width="720">
+  <img src="docs/demos/demo-streamingllm.svg" alt="make-bib StreamingLLM demo" width="720">
 </p>
 
 <!--
@@ -52,10 +52,10 @@ DBLP indexes this paper under its arXiv title ("Training Compute-Optimal Large L
 **Bulk verification.** A real test: Claude Code (**Opus 4.6**) with full web access generated `references.bib` (48 entries) for a robotics paper — no make-bib, no source verification. Then we ran make-bib to verify every entry:
 
 <p align="center">
-  <img src="docs/demo-verify.svg" alt="make-bib bulk verification demo" width="720">
+  <img src="docs/demos/demo-verify.svg" alt="make-bib bulk verification demo" width="720">
 </p>
 
-**14 of 48 entries had errors.** None were fake papers — every entry pointed to a real paper. But the LLM hallucinated the *metadata*: all 8 author given names fabricated in one entry, 4 of 6 last names wrong in another, a paper listed at ICML when it was actually CoRL, an arXiv preprint that was actually published at ICRA 2024, wrong page numbers, missing co-authors. These errors are nearly impossible to catch by eye. make-bib verified each entry against DBLP, arXiv, and publisher pages, fixed all 14, and added source URLs to all 48. Full diff: [`before`](docs/references-before.bib) → [`after`](docs/references-after.bib).
+**14 of 48 entries had errors.** None were fake papers — every entry pointed to a real paper. But the LLM hallucinated the *metadata*: all 8 author given names fabricated in one entry, 4 of 6 last names wrong in another, a paper listed at ICML when it was actually CoRL, an arXiv preprint that was actually published at ICRA 2024, wrong page numbers, missing co-authors. These errors are nearly impossible to catch by eye. make-bib verified each entry against DBLP, arXiv, and publisher pages, fixed all 14, and added source URLs to all 48. Full diff: [`before`](docs/demos/references-before.bib) → [`after`](docs/demos/references-after.bib).
 
 ## Why this exists (and its limitations)
 
