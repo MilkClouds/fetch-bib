@@ -49,13 +49,13 @@ A [Claude Code skill](https://code.claude.com/docs/en/skills) that fetches BibTe
 DBLP indexes this paper under its arXiv title ("Training Compute-Optimal Large Language Models"), but NeurIPS published it under a **different title** ("An empirical analysis of compute-optimal large language model training"). Opus 4.6 with make-bib exhausts DBLP lookups, falls through to the NeurIPS proceedings page, and uses the published title.
 -->
 
-**Bulk verification.** A real test: an LLM generated `references.bib` (47 entries) for a robotics paper using only web search — no make-bib, no source verification. Then we ran make-bib to verify every entry:
+**Bulk verification.** A real test: Claude Code (**Opus 4.6**) with full web access generated `references.bib` (48 entries) for a robotics paper — no make-bib, no source verification. Then we ran make-bib to verify every entry:
 
 <p align="center">
   <img src="docs/demo-verify.svg" alt="make-bib bulk verification demo" width="720">
 </p>
 
-The LLM didn't fabricate papers — every entry pointed to a real paper. But it hallucinated the *metadata*: author names, conference venues, page numbers. These errors are nearly impossible to catch by eye, and exactly what make-bib's source verification is designed to find. Full diff: [`before`](docs/references-before.bib) → [`after`](docs/references-after.bib).
+**14 of 48 entries had errors.** None were fake papers — every entry pointed to a real paper. But the LLM hallucinated the *metadata*: all 8 author given names fabricated in one entry, 4 of 6 last names wrong in another, a paper listed at ICML when it was actually CoRL, an arXiv preprint that was actually published at ICRA 2024, wrong page numbers, missing co-authors. These errors are nearly impossible to catch by eye. make-bib verified each entry against DBLP, arXiv, and publisher pages, fixed all 14, and added source URLs to all 48. Full diff: [`before`](docs/references-before.bib) → [`after`](docs/references-after.bib).
 
 ## Why this exists (and its limitations)
 
