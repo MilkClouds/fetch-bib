@@ -5,6 +5,9 @@
 # OMC state
 .omc/
 
+# Local config
+bibstyle.toml
+
 # NFS lock files (shared cluster)
 .nfs*
 

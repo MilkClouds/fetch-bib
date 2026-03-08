@@ -9,25 +9,14 @@ A [Claude Code skill](https://code.claude.com/docs/en/skills) that fetches BibTe
 - **Generate.** Every field comes from an [authoritative source](#sources) — not from an LLM filling in blanks.
 
 
-**Demo.**
+**Single paper fetch.** Google Scholar would give you arXiv 2023 for this paper. make-bib finds ICLR 2024:
 
-```
-> /make-bib StreamingLLM
+<p align="center">
+  <img src="docs/demo-streamingllm.svg" alt="make-bib StreamingLLM demo" width="720">
+</p>
 
-% source: dblp:conf/iclr/XiaoTCHL24 via dblp (https://dblp.org/rec/conf/iclr/XiaoTCHL24.bib)
-@inproceedings{xiao2024efficient,
-  author    = {Guangxuan Xiao and Yuandong Tian and Beidi Chen
-               and Song Han and Mike Lewis},
-  title     = {Efficient Streaming Language Models
-               with Attention Sinks},
-  booktitle = {{ICLR}},
-  year      = {2024},
-}
-```
-
-Google Scholar would give you arXiv 2023 for this paper. It's ICLR 2024.
-
-When something is ambiguous, it stops and asks — then goes deep to find the right source:
+<!--
+**Disambiguation.** When something is ambiguous, it stops and asks — then goes deep to find the right source:
 
 ```
 > /make-bib Scaling Laws
@@ -58,6 +47,7 @@ When something is ambiguous, it stops and asks — then goes deep to find the ri
 ```
 
 DBLP indexes this paper under its arXiv title ("Training Compute-Optimal Large Language Models"), but NeurIPS published it under a **different title** ("An empirical analysis of compute-optimal large language model training"). Opus 4.6 with make-bib exhausts DBLP lookups, falls through to the NeurIPS proceedings page, and uses the published title.
+-->
 
 **Bulk verification.** A real test: an LLM generated `references.bib` (47 entries) for a robotics paper using only web search — no make-bib, no source verification. Then we ran make-bib to verify every entry:
 
