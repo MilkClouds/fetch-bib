@@ -120,7 +120,6 @@ CONFERENCES: dict[str, dict[str, Any]] = {
     "naacl": {"dir": "naacl", "start": 2010},
     "eacl": {"dir": "eacl", "start": 2012},
     "coling": {"dir": "coling", "start": 2010, "step": 2},
-    "findings": {"dir": "findings", "start": 2020},  # ACL Findings
     "sigir": {"dir": "sigir", "start": 2015},
     "wsdm": {"dir": "wsdm", "start": 2015},
     "cikm": {"dir": "cikm", "start": 2015},
@@ -141,11 +140,9 @@ CONFERENCES: dict[str, dict[str, Any]] = {
     "rss": {"dir": "rss", "start": 2015},
     "iros": {"dir": "iros", "start": 2015},
     "icra": {"dir": "icra", "start": 2015},
-    # LLM / recent
-    "colm": {"dir": "colm", "start": 2024},
     # Journals (use toc for journal volumes)
-    "tacl": {"dir": "tacl", "start": 2013, "type": "journals"},
-    "jmlr": {"dir": "jmlr", "start": 2010, "type": "journals"},
+    "tacl": {"dir": "tacl", "start": 2013, "type": "journals", "vol_start": {"year": 2013, "vol": 1}},
+    "jmlr": {"dir": "jmlr", "start": 2010, "type": "journals", "vol_start": {"year": 2000, "vol": 1}},
 }
 
 CURRENT_YEAR = 2026
@@ -261,7 +258,12 @@ def _build_toc_query(conf_name: str, conf: dict[str, Any], year: int) -> str:
     dblp_dir = conf["dir"]
     db_type = conf.get("type", "conf")
     if db_type == "journals":
-        return f"toc:db/journals/{dblp_dir}/{dblp_dir}{year}.bht:"
+        vol_start = conf.get("vol_start")
+        if vol_start:
+            vol = vol_start["vol"] + (year - vol_start["year"])
+        else:
+            vol = year
+        return f"toc:db/journals/{dblp_dir}/{dblp_dir}{vol}.bht:"
     return f"toc:db/conf/{dblp_dir}/{conf_name}{year}.bht:"
 
 
@@ -313,6 +315,37 @@ def _fetch_page(
     return parsed if parsed else []
 
 
+def _fetch_query_all_pages(
+    client: httpx.Client,
+    query: str,
+    console: Console,
+) -> tuple[dict[str, str], bool]:
+    """Fetch all pages for a single toc query. Returns (entries, success)."""
+    entries: dict[str, str] = {}
+    had_failure = False
+
+    for page in range(MAX_PAGES):
+        parsed = _fetch_page(client, query, page, console)
+
+        if parsed is None:
+            had_failure = True
+            time.sleep(5)
+            continue
+
+        if not parsed:
+            break
+
+        for norm_title, bib_entry in parsed:
+            entries[norm_title] = bib_entry
+
+        if len(parsed) < 900:
+            break
+
+        time.sleep(5)
+
+    return entries, not had_failure
+
+
 def _download_venue_year(
     client: httpx.Client,
     conf_name: str,
@@ -321,59 +354,55 @@ def _download_venue_year(
     pages_done: list[int],
     console: Console,
 ) -> tuple[dict[str, str], list[int], bool]:
-    """Download BibTeX entries for one conference year with page-level resume.
+    """Download BibTeX entries for one conference year.
+
+    Handles split proceedings: if the base query returns empty,
+    tries {conf}{year}-1, -2, -3, ... until a part returns empty.
 
     Args:
-        pages_done: List of page indices already fetched (from _status.json).
+        pages_done: Legacy field (kept for caller compat, unused with split logic).
 
     Returns:
         (entries, new_pages_done, is_complete):
         - entries: {norm_title: bib_entry} from newly fetched pages
-        - new_pages_done: updated list of all successfully fetched pages
-        - is_complete: True if all pages fetched successfully (no gaps, reached end)
+        - new_pages_done: always [] (page-level resume not used with split support)
+        - is_complete: True if all parts fetched successfully
     """
-    query = _build_toc_query(conf_name, conf, year)
-    entries: dict[str, str] = {}
-    new_pages_done = list(pages_done)
-    had_failure = False
-    reached_end = False
+    base_query = _build_toc_query(conf_name, conf, year)
 
-    for page in range(MAX_PAGES):
-        if page in pages_done:
-            continue
+    # Try base query first
+    entries, ok = _fetch_query_all_pages(client, base_query, console)
+    if entries:
+        return entries, [], ok
 
-        parsed = _fetch_page(client, query, page, console)
+    # Base returned empty — try split proceedings: -1, -2, -3, ...
+    db_type = conf.get("type", "conf")
+    if db_type == "journals":
+        # Journals don't have split volumes
+        return {}, [], True
 
-        if parsed is None:
-            # Page fetch failed — skip and continue to next page
-            had_failure = True
-            time.sleep(5)
-            continue
+    dblp_dir = conf["dir"]
+    all_entries: dict[str, str] = {}
+    all_ok = True
 
-        if not parsed:
-            # Empty result — no more pages
-            reached_end = True
-            break
+    num_parts = 0
+    for part in range(1, 50):  # safety cap
+        part_query = f"toc:db/conf/{dblp_dir}/{conf_name}{year}-{part}.bht:"
+        part_entries, part_ok = _fetch_query_all_pages(client, part_query, console)
 
-        for norm_title, bib_entry in parsed:
-            entries[norm_title] = bib_entry
-        new_pages_done.append(page)
+        if not part_entries:
+            break  # no more parts
 
-        if len(parsed) < 900:
-            # Last page (fewer than full page of results)
-            reached_end = True
-            break
+        num_parts = part
+        all_entries.update(part_entries)
+        if not part_ok:
+            all_ok = False
+        time.sleep(2)
 
-        time.sleep(5)  # polite delay between pages
+    if all_entries:
+        console.print(f"    [dim]split proceedings: {num_parts} parts[/]", highlight=False)
 
-    # Complete = reached natural end with no failed pages in between
-    is_complete = reached_end and not had_failure
-    # Also check no gaps: all pages from 0 to max(new_pages_done) must be present
-    if is_complete and new_pages_done:
-        max_page = max(new_pages_done)
-        is_complete = set(range(max_page + 1)).issubset(set(new_pages_done))
-
-    return entries, sorted(set(new_pages_done)), is_complete
+    return all_entries, [], all_ok
 
 
 def sync(
@@ -691,6 +720,64 @@ def cli_list_conferences() -> None:
         db_type = conf.get("type", "conf")
         tag = f"[dim]({db_type})[/]" if db_type != "conf" else ""
         console.print(f"  {name:20s} {year_range:15s} {tag}")
+
+
+@app.command("reset-status")
+def cli_reset_status(
+    conferences: Annotated[
+        str | None,
+        typer.Option("--conferences", "-c", help="Comma-separated conference names (default: all affected)"),
+    ] = None,
+    year: Annotated[
+        str | None,
+        typer.Option("--year", "-y", help="Comma-separated years to reset (default: all years)"),
+    ] = None,
+    zero_only: Annotated[
+        bool,
+        typer.Option("--zero-only", help="Only reset years with 0 entries in their JSON file"),
+    ] = True,
+) -> None:
+    """Remove falsely-completed years from _status.json so sync will re-fetch them.
+
+    By default (--zero-only), only resets years marked complete but with 0 entries.
+    """
+    console = Console(stderr=True)
+    targets = [c.strip() for c in conferences.split(",")] if conferences else list(CONFERENCES.keys())
+    year_list = {int(y.strip()) for y in year.split(",")} if year else None
+
+    total_reset = 0
+    for conf_name in targets:
+        if conf_name not in CONFERENCES:
+            continue
+        conf_dir = CONFERENCES[conf_name]["dir"]
+        status = _load_status(conf_dir)
+        complete_years = set(status.get("complete_years", []))
+        if not complete_years:
+            continue
+
+        to_reset: set[int] = set()
+        for y in complete_years:
+            if year_list and y not in year_list:
+                continue
+            if zero_only:
+                data = _load_year(conf_dir, y)
+                if len(data) > 0:
+                    continue
+            to_reset.add(y)
+
+        if not to_reset:
+            continue
+
+        status["complete_years"] = sorted(complete_years - to_reset)
+        _save_status(conf_dir, status)
+        total_reset += len(to_reset)
+        years_str = ", ".join(str(y) for y in sorted(to_reset))
+        console.print(f"  {conf_name}: reset {len(to_reset)} years ({years_str})")
+
+    if total_reset:
+        console.print(f"\n[green]Reset {total_reset} years. Run 'sync' to re-fetch.[/]")
+    else:
+        console.print("[dim]No years to reset.[/]")
 
 
 if __name__ == "__main__":
