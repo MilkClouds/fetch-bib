@@ -95,6 +95,8 @@ def _structured_from_bibtex(bibtex: str) -> dict[str, Any]:
 
 # -- Conference definitions --
 
+CURRENT_YEAR = 2026
+
 CONFERENCES: dict[str, dict[str, Any]] = {
     # ML / AI
     "neurips": {"dir": "nips", "start": 2020},
@@ -102,10 +104,13 @@ CONFERENCES: dict[str, dict[str, Any]] = {
     "icml": {"dir": "icml", "start": 2010},
     "iclr": {"dir": "iclr", "start": 2013},
     "aaai": {"dir": "aaai", "start": 2010},
-    "ijcai": {"dir": "ijcai", "start": 2010},
-    "aistats": {"dir": "aistats", "start": 2010},
+    "ijcai": {  # biennial odd years until 2015, annual from 2016
+        "dir": "ijcai",
+        "years": [2011, 2013, 2015, *range(2016, CURRENT_YEAR + 1)],
+    },
+    "aistats": {"dir": "aistats", "start": 2013},
     "uai": {"dir": "uai", "start": 2010},
-    "colt": {"dir": "colt", "start": 2010},
+    "colt": {"dir": "colt", "start": 2010},  # 2011-2012 not available via DBLP toc API
     "mlsys": {"dir": "mlsys", "start": 2019},
     # CV
     "cvpr": {"dir": "cvpr", "start": 2010},
@@ -117,8 +122,14 @@ CONFERENCES: dict[str, dict[str, Any]] = {
     # NLP / IR
     "acl": {"dir": "acl", "start": 2010},
     "emnlp": {"dir": "emnlp", "start": 2010},
-    "naacl": {"dir": "naacl", "start": 2010},
-    "eacl": {"dir": "eacl", "start": 2012},
+    "naacl": {  # irregular schedule
+        "dir": "naacl",
+        "years": [2010, 2012, 2013, 2015, 2016, 2018, 2019, 2021, 2022, 2024, 2025],
+    },
+    "eacl": {  # irregular schedule
+        "dir": "eacl",
+        "years": [2012, 2014, 2017, 2021, 2023, 2024],
+    },
     "coling": {"dir": "coling", "start": 2010, "step": 2},
     "sigir": {"dir": "sigir", "start": 2015},
     "wsdm": {"dir": "wsdm", "start": 2015},
@@ -127,7 +138,7 @@ CONFERENCES: dict[str, dict[str, Any]] = {
     # Systems / Data / HCI
     "kdd": {"dir": "kdd", "start": 2010},
     "chi": {"dir": "chi", "start": 2015},
-    "sigmod": {"dir": "sigmod", "start": 2015},
+    "sigmod": {"dir": "sigmod", "start": 2015, "suffixes": ["", "c"]},
     "recsys": {"dir": "recsys", "start": 2015},
     # Audio / Speech
     "icassp": {"dir": "icassp", "start": 2015},
@@ -145,11 +156,11 @@ CONFERENCES: dict[str, dict[str, Any]] = {
     "jmlr": {"dir": "jmlr", "start": 2010, "type": "journals", "vol_start": {"year": 2000, "vol": 1}},
 }
 
-CURRENT_YEAR = 2026
-
 
 def _year_range(conf: dict[str, Any]) -> list[int]:
     """Generate the list of years for a conference."""
+    if "years" in conf:
+        return list(conf["years"])
     start = conf["start"]
     end = conf.get("end", CURRENT_YEAR)
     step = conf.get("step", 1)
@@ -375,13 +386,24 @@ def _download_venue_year(
     if entries:
         return entries, [], ok
 
-    # Base returned empty — try split proceedings: -1, -2, -3, ...
+    # Try alternative suffixes (e.g. sigmod2023c)
     db_type = conf.get("type", "conf")
+    suffixes = conf.get("suffixes", [])
+    dblp_dir = conf["dir"]
+    for suffix in suffixes:
+        if not suffix:  # skip empty (already tried as base)
+            continue
+        suffix_query = f"toc:db/conf/{dblp_dir}/{conf_name}{year}{suffix}.bht:"
+        entries, ok = _fetch_query_all_pages(client, suffix_query, console)
+        if entries:
+            return entries, [], ok
+        time.sleep(2)
+
     if db_type == "journals":
         # Journals don't have split volumes; 0 results = not yet available
         return {}, [], False
 
-    dblp_dir = conf["dir"]
+    # Base returned empty — try split proceedings: -1, -2, -3, ...
     all_entries: dict[str, str] = {}
     all_ok = True
 
