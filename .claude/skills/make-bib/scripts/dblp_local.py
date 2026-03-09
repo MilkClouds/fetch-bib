@@ -94,6 +94,22 @@ def _structured_from_bibtex(bibtex: str) -> dict[str, Any]:
 
 
 # -- Conference definitions --
+#
+# Each entry supports:
+#   dir:       DBLP directory name (may differ from key, e.g. neurips -> nips)
+#   start/end: year range (end defaults to CURRENT_YEAR)
+#   step:      for biennial conferences (default 1)
+#   years:     explicit year list for irregular schedules (overrides start/end/step)
+#   type:      "journals" for journal venues (default: "conf")
+#   vol_start: journal volume numbering {"year": ..., "vol": ...}
+#   suffixes:  alternative DBLP toc key suffixes to try (e.g. ["", "c"] for sigmod)
+#
+# Known DBLP toc API limitations:
+#   - COLT 2011-2012: pages exist on DBLP website but toc API returns empty
+#     (published via JMLR W&CP, not indexed in toc format)
+#   - AISTATS pre-2013: same issue (JMLR W&CP proceedings)
+#   - SIGMOD 2023+: DBLP changed toc key from sigmod{year} to sigmod{year}c
+#
 
 CURRENT_YEAR = 2026
 
@@ -108,29 +124,29 @@ CONFERENCES: dict[str, dict[str, Any]] = {
         "dir": "ijcai",
         "years": [2011, 2013, 2015, *range(2016, CURRENT_YEAR + 1)],
     },
-    "aistats": {"dir": "aistats", "start": 2013},
+    "aistats": {"dir": "aistats", "start": 2013},  # pre-2013: DBLP toc unavailable
     "uai": {"dir": "uai", "start": 2010},
-    "colt": {"dir": "colt", "start": 2010},  # 2011-2012 not available via DBLP toc API
+    "colt": {"dir": "colt", "start": 2010},  # 2011-2012: DBLP toc unavailable
     "mlsys": {"dir": "mlsys", "start": 2019},
     # CV
     "cvpr": {"dir": "cvpr", "start": 2010},
     "iccv": {"dir": "iccv", "start": 2011, "step": 2},  # odd years only
     "eccv": {"dir": "eccv", "start": 2010, "step": 2},  # even years only
     "bmvc": {"dir": "bmvc", "start": 2015},
-    "accv": {"dir": "accv", "start": 2010, "step": 2},
+    "accv": {"dir": "accv", "start": 2010, "step": 2},  # even years only
     "miccai": {"dir": "miccai", "start": 2015},
     # NLP / IR
     "acl": {"dir": "acl", "start": 2010},
     "emnlp": {"dir": "emnlp", "start": 2010},
-    "naacl": {  # irregular schedule
+    "naacl": {  # irregular schedule (alternates with EACL, sometimes skipped)
         "dir": "naacl",
         "years": [2010, 2012, 2013, 2015, 2016, 2018, 2019, 2021, 2022, 2024, 2025],
     },
-    "eacl": {  # irregular schedule
+    "eacl": {  # irregular schedule (roughly every 2-3 years)
         "dir": "eacl",
         "years": [2012, 2014, 2017, 2021, 2023, 2024],
     },
-    "coling": {"dir": "coling", "start": 2010, "step": 2},
+    "coling": {"dir": "coling", "start": 2010, "step": 2},  # even years only
     "sigir": {"dir": "sigir", "start": 2015},
     "wsdm": {"dir": "wsdm", "start": 2015},
     "cikm": {"dir": "cikm", "start": 2015},
@@ -138,7 +154,7 @@ CONFERENCES: dict[str, dict[str, Any]] = {
     # Systems / Data / HCI
     "kdd": {"dir": "kdd", "start": 2010},
     "chi": {"dir": "chi", "start": 2015},
-    "sigmod": {"dir": "sigmod", "start": 2015, "suffixes": ["", "c"]},
+    "sigmod": {"dir": "sigmod", "start": 2015, "suffixes": ["", "c"]},  # 2023+: key=sigmod{year}c
     "recsys": {"dir": "recsys", "start": 2015},
     # Audio / Speech
     "icassp": {"dir": "icassp", "start": 2015},
