@@ -4,13 +4,13 @@
     "name": "MilkClouds"
   },
   "metadata": {
-    "description": "Generate accurate BibTeX from authoritative sources",
+    "description": "Generate accurate BibTeX entries from authoritative sources (DBLP, ACL Anthology, PMLR, CrossRef, arXiv)",
     "version": "1.1.0"
   },
   "plugins": [
     {
       "name": "make-bib",
-      "description": "Generate accurate BibTeX from authoritative sources (CrossRef, DBLP, arXiv)",
+      "description": "Generate accurate BibTeX entries from authoritative sources (DBLP, ACL Anthology, PMLR, CrossRef, arXiv). Use for citations, BibTeX, bibliography fixes, or paper publication lookups.",
       "source": "./",
       "strict": false,
       "skills": [
