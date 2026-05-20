@@ -53,7 +53,7 @@ PAGE_SIZE = 1000
 # use. When republishing a refreshed snapshot, point both constants at the new
 # `dblp-db-YYYY.MM` release.
 DATA_RELEASE_URL = "https://github.com/MilkClouds/make-bib/releases/download/dblp-db-2026.05/dblp-data.tar.gz"
-DATA_RELEASE_SHA256 = "c9b4b83d274795c50a83ffb6d86e3af81b8f923337528d7f728b6d473793ef25"
+DATA_RELEASE_SHA256 = "01966ca15a59b3c27377a3209fdb0c4d66dedfbde5c5fdf251ea9bdf388027f9"
 
 # DBLP mirrors (for reference / fallback)
 # Primary: https://dblp.org
