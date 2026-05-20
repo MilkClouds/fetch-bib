@@ -43,13 +43,24 @@ from filelock import FileLock
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
+
 # -- Paths --
-# The DBLP database lives under XDG_CACHE_HOME (default ~/.cache), not inside
-# the plugin/skill tree. It is large (~237 MB), re-fetchable from the Release
-# asset, and shared across every clone of the skill — writing it into the
-# plugin directory would bloat each install and risk loss on plugin update.
-_xdg_cache = os.environ.get("XDG_CACHE_HOME")
-DATA_DIR = (Path(_xdg_cache) if _xdg_cache else Path.home() / ".cache") / "make-bib" / "dblp"
+# The DBLP database is stored outside the plugin/skill tree — it is large
+# (~237 MB) and re-fetchable from the Release asset, but it is *essential* to
+# the skill (not a discardable cache), so it belongs in a data location, not
+# a cache one. Resolution order:
+#   1. $CLAUDE_PLUGIN_DATA      — per-plugin data dir Claude Code sets at runtime
+#   2. $XDG_DATA_HOME (or ~/.local/share) — standalone / terminal use
+def _resolve_data_dir() -> Path:
+    plugin_data = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if plugin_data:
+        return Path(plugin_data) / "dblp"
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg_data) if xdg_data else Path.home() / ".local" / "share"
+    return base / "make-bib" / "dblp"
+
+
+DATA_DIR = _resolve_data_dir()
 MAX_PAGES = 5
 PAGE_SIZE = 1000
 
