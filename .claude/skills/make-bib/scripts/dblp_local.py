@@ -27,8 +27,11 @@ Data layout:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import tarfile
+import tempfile
 import time
 from pathlib import Path
 from typing import Annotated, Any
@@ -43,6 +46,13 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 DATA_DIR = Path(__file__).parent / "data" / "dblp"
 MAX_PAGES = 5
 PAGE_SIZE = 1000
+
+# The ~237 MB DBLP database ships as a GitHub Release asset, not in the git
+# repo (and not Git LFS) — keeps `git clone` of the skill lightweight and off
+# the repo owner's Git LFS bandwidth quota. ``ensure_data`` fetches it on first
+# use. Bump the tag here when republishing a refreshed database.
+DATA_RELEASE_URL = "https://github.com/MilkClouds/make-bib/releases/download/data-v1/dblp-data.tar.gz"
+DATA_RELEASE_SHA256 = "c9b4b83d274795c50a83ffb6d86e3af81b8f923337528d7f728b6d473793ef25"
 
 # DBLP mirrors (for reference / fallback)
 # Primary: https://dblp.org
@@ -223,6 +233,65 @@ def _parse_bib_entries(bib_text: str) -> list[tuple[str, str]]:
             results.append((norm, cleaned.strip()))
 
     return results
+
+
+# -- Release-bundled data bootstrap --
+
+
+def ensure_data(console: Console | None = None) -> None:
+    """Ensure the local DBLP database is present, fetching it on first use.
+
+    The database (~237 MB uncompressed) is published as a GitHub Release asset
+    rather than committed to the repo, so cloning the skill stays small and
+    does not draw on the repo owner's Git LFS bandwidth quota. If ``DATA_DIR``
+    is missing or empty, download the archive once and extract it.
+
+    A no-op when the data is already present, so it is cheap to call before
+    every lookup. Concurrency-safe via a file lock.
+    """
+    if DATA_DIR.exists() and any(DATA_DIR.iterdir()):
+        return
+
+    console = console or Console(stderr=True)
+    data_root = DATA_DIR.parent  # .../scripts/data — archive root is `dblp/`
+    data_root.mkdir(parents=True, exist_ok=True)
+
+    lock = FileLock(str(data_root / ".dblp-download.lock"))
+    with lock:
+        # Another process may have finished the download while we waited.
+        if DATA_DIR.exists() and any(DATA_DIR.iterdir()):
+            return
+
+        console.print(f"[bold]Fetching DBLP database[/] (~36 MB) from {DATA_RELEASE_URL}")
+        digest = hashlib.sha256()
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False, dir=data_root) as tmp:
+                tmp_path = Path(tmp.name)
+                with httpx.stream("GET", DATA_RELEASE_URL, follow_redirects=True, timeout=120.0) as resp:
+                    resp.raise_for_status()
+                    for chunk in resp.iter_bytes(chunk_size=1 << 20):
+                        tmp.write(chunk)
+                        digest.update(chunk)
+
+            got = digest.hexdigest()
+            if got != DATA_RELEASE_SHA256:
+                raise RuntimeError(
+                    f"DBLP archive checksum mismatch: got {got}, expected {DATA_RELEASE_SHA256}"
+                )
+
+            with tarfile.open(tmp_path, "r:gz") as tar:
+                # ``filter='data'`` (Python 3.12+) rejects unsafe members; the
+                # older signature has no such kwarg, so fall back gracefully.
+                try:
+                    tar.extractall(data_root, filter="data")
+                except TypeError:
+                    tar.extractall(data_root)
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+
+        console.print("[green]DBLP database ready.[/]")
 
 
 # -- Data I/O --
@@ -634,6 +703,7 @@ def search(title: str, max_results: int = 5) -> list[dict[str, Any]]:
     Raises:
         IncompleteDBError: If the database has incomplete (partially synced) years.
     """
+    ensure_data()
     incomplete = _check_db_completeness()
     if incomplete:
         details = ", ".join(f"{c}/{y}" for c, y in incomplete[:10])
@@ -727,6 +797,7 @@ def cli_search(
 def cli_stats() -> None:
     """Show local database statistics."""
     console = Console()
+    ensure_data(console)
     if not DATA_DIR.exists():
         console.print("[yellow]No local database found. Run 'sync' first.[/]")
         return
