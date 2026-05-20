@@ -276,9 +276,7 @@ def ensure_data(console: Console | None = None) -> None:
 
             got = digest.hexdigest()
             if got != DATA_RELEASE_SHA256:
-                raise RuntimeError(
-                    f"DBLP archive checksum mismatch: got {got}, expected {DATA_RELEASE_SHA256}"
-                )
+                raise RuntimeError(f"DBLP archive checksum mismatch: got {got}, expected {DATA_RELEASE_SHA256}")
 
             with tarfile.open(tmp_path, "r:gz") as tar:
                 # ``filter='data'`` (Python 3.12+) rejects unsafe members; the
