@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import tarfile
 import tempfile
@@ -43,7 +44,12 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 
 # -- Paths --
-DATA_DIR = Path(__file__).parent / "data" / "dblp"
+# The DBLP database lives under XDG_CACHE_HOME (default ~/.cache), not inside
+# the plugin/skill tree. It is large (~237 MB), re-fetchable from the Release
+# asset, and shared across every clone of the skill — writing it into the
+# plugin directory would bloat each install and risk loss on plugin update.
+_xdg_cache = os.environ.get("XDG_CACHE_HOME")
+DATA_DIR = (Path(_xdg_cache) if _xdg_cache else Path.home() / ".cache") / "make-bib" / "dblp"
 MAX_PAGES = 5
 PAGE_SIZE = 1000
 

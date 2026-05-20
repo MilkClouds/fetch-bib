@@ -5,7 +5,7 @@
   },
   "metadata": {
     "description": "Generate accurate BibTeX entries from authoritative sources (DBLP, ACL Anthology, PMLR, CrossRef, arXiv)",
-    "version": "1.2.0"
+    "version": "1.2.1"
   },
   "plugins": [
     {

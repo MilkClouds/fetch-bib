@@ -1,7 +1,0 @@
-# filelock lock files (DBLP sync)
-scripts/data/**/*.lock
-
-# DBLP database — distributed as a GitHub Release asset, fetched at runtime
-# by dblp_local.py (ensure_data). Not committed: keeps the skill repo small
-# and off the repo owner's Git LFS bandwidth quota.
-scripts/data/dblp/
