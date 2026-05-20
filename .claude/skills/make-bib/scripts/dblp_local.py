@@ -50,8 +50,9 @@ PAGE_SIZE = 1000
 # The ~237 MB DBLP database ships as a GitHub Release asset, not in the git
 # repo (and not Git LFS) — keeps `git clone` of the skill lightweight and off
 # the repo owner's Git LFS bandwidth quota. ``ensure_data`` fetches it on first
-# use. Bump the tag here when republishing a refreshed database.
-DATA_RELEASE_URL = "https://github.com/MilkClouds/make-bib/releases/download/data-v1/dblp-data.tar.gz"
+# use. When republishing a refreshed snapshot, point both constants at the new
+# `dblp-db-YYYY.MM` release.
+DATA_RELEASE_URL = "https://github.com/MilkClouds/make-bib/releases/download/dblp-db-2026.05/dblp-data.tar.gz"
 DATA_RELEASE_SHA256 = "c9b4b83d274795c50a83ffb6d86e3af81b8f923337528d7f728b6d473793ef25"
 
 # DBLP mirrors (for reference / fallback)
