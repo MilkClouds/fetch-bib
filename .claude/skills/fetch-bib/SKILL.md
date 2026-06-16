@@ -1,5 +1,5 @@
 ---
-name: make-bib
+name: fetch-bib
 description: >
   Generate accurate BibTeX entries from authoritative sources (DBLP, ACL Anthology, PMLR, CrossRef, arXiv).
   Use this skill whenever the user needs a citation, BibTeX entry, bibliography fix, or wants to look up
@@ -8,7 +8,7 @@ description: >
   academic citation task.
 ---
 
-# make-bib
+# fetch-bib
 
 `$ARGUMENTS` — accepts `arxiv:ID`, `doi:ID`, `dblp:KEY`, `openreview:ID`, a title in quotes, or an abbreviation.
 
@@ -40,7 +40,7 @@ Each principle exists because a specific class of citation error is common and h
 - `sync` — download or update the local DBLP database.
 - `search "<title>"` — search the local DB by normalized title. No rate limit — prefer this over API calls for CS paper discovery.
 
-Rate limits apply to external APIs. Keep concurrent make-bib invocations to 3 or fewer. On 429 errors, wait and retry once — don't spawn extra subagents to work around throttling.
+Rate limits apply to external APIs. Keep concurrent fetch-bib invocations to 3 or fewer. On 429 errors, wait and retry once — don't spawn extra subagents to work around throttling.
 
 ## Workflow
 

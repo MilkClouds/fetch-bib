@@ -1,5 +1,5 @@
 {
-  "name": "make-bib",
+  "name": "fetch-bib",
   "owner": {
     "name": "MilkClouds"
   },
@@ -9,12 +9,12 @@
   },
   "plugins": [
     {
-      "name": "make-bib",
+      "name": "fetch-bib",
       "description": "Generate accurate BibTeX entries from authoritative sources (DBLP, ACL Anthology, PMLR, CrossRef, arXiv). Use for citations, BibTeX, bibliography fixes, or paper publication lookups.",
       "source": "./",
       "strict": false,
       "skills": [
-        "./.claude/skills/make-bib"
+        "./.claude/skills/fetch-bib"
       ]
     }
   ]

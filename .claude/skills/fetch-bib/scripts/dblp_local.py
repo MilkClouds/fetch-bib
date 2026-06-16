@@ -57,25 +57,29 @@ def _resolve_data_dir() -> Path:
         return Path(plugin_data) / "dblp"
     xdg_data = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg_data) if xdg_data else Path.home() / ".local" / "share"
-    return base / "make-bib" / "dblp"
+    return base / "fetch-bib" / "dblp"
 
 
 DATA_DIR = _resolve_data_dir()
-MAX_PAGES = 5
-PAGE_SIZE = 1000
+# DBLP's publ/api clamps results to 100 per request server-side (the `h`
+# parameter is capped), so pages are 100 wide and we walk the `f` offset in
+# 100-entry steps. MAX_PAGES is the safety cap: 80 * 100 = 8000 entries, well
+# above any single venue-year (largest ~4500, NeurIPS).
+MAX_PAGES = 80
+PAGE_SIZE = 100
 
 # The ~237 MB DBLP database ships as a GitHub Release asset, not in the git
 # repo (and not Git LFS) — keeps `git clone` of the skill lightweight and off
 # the repo owner's Git LFS bandwidth quota. ``ensure_data`` fetches it on first
 # use. When republishing a refreshed snapshot, point both constants at the new
 # `dblp-db-YYYY.MM` release.
-DATA_RELEASE_URL = "https://github.com/MilkClouds/make-bib/releases/download/dblp-db-2026.05/dblp-data.tar.gz"
-DATA_RELEASE_SHA256 = "01966ca15a59b3c27377a3209fdb0c4d66dedfbde5c5fdf251ea9bdf388027f9"
+DATA_RELEASE_URL = "https://github.com/MilkClouds/fetch-bib/releases/download/dblp-db-2026.06/dblp-data.tar.gz"
+DATA_RELEASE_SHA256 = "aa64b3cb299c6062937102d1845780651dc6e93f94118d3af744584891a8fcac"
 
-# DBLP mirrors (for reference / fallback)
-# Primary: https://dblp.org
-# Mirrors: https://dblp.uni-trier.de, https://dblp.dagstuhl.de
-DBLP_BASE = "https://dblp.org"
+# DBLP base host. dblp.org is primary; the Trier and Dagstuhl mirrors serve the
+# same API and are useful when dblp.org rate-limits a bulk sync. Override via the
+# DBLP_BASE env var, e.g. DBLP_BASE=https://dblp.uni-trier.de.
+DBLP_BASE = os.environ.get("DBLP_BASE", "https://dblp.org").rstrip("/")
 
 # -- Title normalization (Rebiber approach) --
 
@@ -438,6 +442,9 @@ def _fetch_query_all_pages(
     entries: dict[str, str] = {}
     had_failure = False
 
+    # Page until an empty page (end of results) or MAX_PAGES. A short page can't
+    # be used as the stop signal: with 100-wide pages a single untitled/skipped
+    # entry would make a full page look short and truncate the venue-year.
     for page in range(MAX_PAGES):
         parsed = _fetch_page(client, query, page, console)
 
@@ -452,10 +459,7 @@ def _fetch_query_all_pages(
         for norm_title, bib_entry in parsed:
             entries[norm_title] = bib_entry
 
-        if len(parsed) < 900:
-            break
-
-        time.sleep(5)
+        time.sleep(2)
 
     return entries, not had_failure
 

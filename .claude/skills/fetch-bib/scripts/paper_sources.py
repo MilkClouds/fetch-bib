@@ -42,7 +42,7 @@ load_dotenv()
 SourceData = dict[str, Any]
 
 # -- HTTP client with cache --
-_CACHE_DIR = Path.home() / ".cache" / "make-bib"
+_CACHE_DIR = Path.home() / ".cache" / "fetch-bib"
 
 
 def _make_client(timeout: float = 30.0) -> httpx.Client:

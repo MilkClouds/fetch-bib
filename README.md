@@ -1,4 +1,4 @@
-# make-bib: Human-in-the-loop BibTeX fetch from the authoritative source
+# fetch-bib: Human-in-the-loop BibTeX fetch from the authoritative source
 
 A [Claude Code skill](https://code.claude.com/docs/en/skills) that fetches BibTeX from authoritative sources.
 
@@ -9,17 +9,17 @@ A [Claude Code skill](https://code.claude.com/docs/en/skills) that fetches BibTe
 - **Generate.** Every field comes from an [authoritative source](#sources) — not from an LLM filling in blanks.
 
 
-**Single paper fetch.** Google Scholar would give you arXiv 2023 for this paper. make-bib finds ICLR 2024:
+**Single paper fetch.** Google Scholar would give you arXiv 2023 for this paper. fetch-bib finds ICLR 2024:
 
 <p align="center">
-  <img src="docs/demos/demo-streamingllm.svg" alt="make-bib StreamingLLM demo" width="720">
+  <img src="docs/demos/demo-streamingllm.svg" alt="fetch-bib StreamingLLM demo" width="720">
 </p>
 
 <!--
 **Disambiguation.** When something is ambiguous, it stops and asks — then goes deep to find the right source:
 
 ```
-> /make-bib Scaling Laws
+> /fetch-bib Scaling Laws
 
 ? Which "Scaling Laws" paper do you mean?
   1. Kaplan et al. 2020 — Scaling Laws for Neural Language Models (arXiv:2001.08361)
@@ -46,16 +46,16 @@ A [Claude Code skill](https://code.claude.com/docs/en/skills) that fetches BibTe
 }
 ```
 
-DBLP indexes this paper under its arXiv title ("Training Compute-Optimal Large Language Models"), but NeurIPS published it under a **different title** ("An empirical analysis of compute-optimal large language model training"). Opus 4.6 with make-bib exhausts DBLP lookups, falls through to the NeurIPS proceedings page, and uses the published title.
+DBLP indexes this paper under its arXiv title ("Training Compute-Optimal Large Language Models"), but NeurIPS published it under a **different title** ("An empirical analysis of compute-optimal large language model training"). Opus 4.6 with fetch-bib exhausts DBLP lookups, falls through to the NeurIPS proceedings page, and uses the published title.
 -->
 
-**Bulk verification.** A real test: Claude Code (**Opus 4.6**) with full web access generated `references.bib` (48 entries) for a robotics paper — no make-bib, no source verification. Then we ran make-bib to verify every entry:
+**Bulk verification.** A real test: Claude Code (**Opus 4.6**) with full web access generated `references.bib` (48 entries) for a robotics paper — no fetch-bib, no source verification. Then we ran fetch-bib to verify every entry:
 
 <p align="center">
-  <img src="docs/demos/demo-verify.svg" alt="make-bib bulk verification demo" width="720">
+  <img src="docs/demos/demo-verify.svg" alt="fetch-bib bulk verification demo" width="720">
 </p>
 
-**14 of 48 entries had errors.** None were fake papers — every entry pointed to a real paper. But the LLM hallucinated the *metadata*: all 8 author given names fabricated in one entry, 4 of 6 last names wrong in another, a paper listed at ICML when it was actually CoRL, an arXiv preprint that was actually published at ICRA 2024, wrong page numbers, missing co-authors. These errors are nearly impossible to catch by eye. make-bib verified each entry against DBLP, arXiv, and publisher pages, fixed all 14, and added source URLs to all 48. Full diff: [`before`](docs/demos/references-before.bib) → [`after`](docs/demos/references-after.bib).
+**14 of 48 entries had errors.** None were fake papers — every entry pointed to a real paper. But the LLM hallucinated the *metadata*: all 8 author given names fabricated in one entry, 4 of 6 last names wrong in another, a paper listed at ICML when it was actually CoRL, an arXiv preprint that was actually published at ICRA 2024, wrong page numbers, missing co-authors. These errors are nearly impossible to catch by eye. fetch-bib verified each entry against DBLP, arXiv, and publisher pages, fixed all 14, and added source URLs to all 48. Full diff: [`before`](docs/demos/references-before.bib) → [`after`](docs/demos/references-after.bib).
 
 ## Why this exists (and its limitations)
 
@@ -65,9 +65,9 @@ LLMs hallucinate citations. This is not hypothetical — it is happening at scal
 - **ACL/EMNLP 2025**: [~300 papers with hallucinated references](https://arxiv.org/abs/2601.18724), with EMNLP 2025 alone accounting for 154. The number jumped sharply from 20 in 2024 to 275 in 2025.
 - **arXiv trend**: [Analysis of 2.2M citations](https://spylab.ai/blog/hallucinations/) shows hallucinated references accelerating from early 2025, with LLMs blending real papers into chimeric non-existent entries.
 
-The root cause: LLMs generate plausible-looking citations from statistical patterns, not from actual sources. make-bib avoids this by never generating metadata — every field comes from a publisher, curated database, or API response, with the source URL attached.
+The root cause: LLMs generate plausible-looking citations from statistical patterns, not from actual sources. fetch-bib avoids this by never generating metadata — every field comes from a publisher, curated database, or API response, with the source URL attached.
 
-That said, make-bib is still an LLM skill. It can pick the wrong source, misformat fields, or fail under edge cases. **Always review the output before citing.** Designed for and tested with **Claude Opus 4.6** — *correct behavior with lower-tier models is not guaranteed.*
+That said, fetch-bib is still an LLM skill. It can pick the wrong source, misformat fields, or fail under edge cases. **Always review the output before citing.** Designed for and tested with **Claude Opus 4.6** — *correct behavior with lower-tier models is not guaranteed.*
 
 ## Sources
 
@@ -134,36 +134,36 @@ Input: paper ID, title, or abbreviation
 ## Prerequisites
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — Anthropic's CLI for Claude. This skill runs inside Claude Code, not as a standalone tool.
-- **Claude Opus 4.6** — make-bib requires multi-step judgment (source selection, venue verification, disambiguation). Lower-tier models may skip steps, pick wrong sources, or silently guess instead of asking. Opus 4.6 is the only model make-bib is designed for and tested with.
+- **Claude Opus 4.6** — fetch-bib requires multi-step judgment (source selection, venue verification, disambiguation). Lower-tier models may skip steps, pick wrong sources, or silently guess instead of asking. Opus 4.6 is the only model fetch-bib is designed for and tested with.
 - Python 3.10+ and [uv](https://docs.astral.sh/uv/) (for the bundled DBLP local database scripts)
 
 ## Installation
 
-This repo is a [Claude Code skill](https://code.claude.com/docs/en/skills) — a set of instructions and scripts that Claude Code loads when you type `/make-bib`.
+This repo is a [Claude Code skill](https://code.claude.com/docs/en/skills) — a set of instructions and scripts that Claude Code loads when you type `/fetch-bib`.
 
 In Claude Code, run:
 
 ```
-/plugin marketplace add MilkClouds/make-bib
+/plugin marketplace add MilkClouds/fetch-bib
 ```
 
-Then select `Browse and install plugins` → `make-bib` → `Install now`. Or install directly:
+Then select `Browse and install plugins` → `fetch-bib` → `Install now`. Or install directly:
 
 ```
-/plugin install make-bib@make-bib
+/plugin install fetch-bib@fetch-bib
 ```
 
 After installing, restart your Claude Code session for the skill to take effect.
 
-Or manually: clone this repo into `.claude/skills/make-bib` (project-level) or `~/.claude/skills/make-bib` (global).
+Or manually: clone this repo into `.claude/skills/fetch-bib` (project-level) or `~/.claude/skills/fetch-bib` (global).
 
 ## Usage
 
 ```
-> /make-bib arxiv:2106.09685
-> /make-bib doi:10.1109/CVPR.2016.90
-> /make-bib "Attention Is All You Need"
-> /make-bib LoRA
+> /fetch-bib arxiv:2106.09685
+> /fetch-bib doi:10.1109/CVPR.2016.90
+> /fetch-bib "Attention Is All You Need"
+> /fetch-bib LoRA
 ```
 
 ## Configuration
@@ -203,7 +203,7 @@ Contributions are very welcome — especially issues and changes that improve ci
 
 ## Related projects
 
-- [**rebiber**](https://github.com/yuchenlin/rebiber) — Normalizes arXiv BibTeX with DBLP/ACL data. make-bib's local database is inspired by rebiber's approach.
+- [**rebiber**](https://github.com/yuchenlin/rebiber) — Normalizes arXiv BibTeX with DBLP/ACL data. fetch-bib's local database is inspired by rebiber's approach.
 - [**SimBiber**](https://github.com/MLNLP-World/SimBiber) — Simplifies BibTeX to minimal fields.
 - [**bibtex-dblp**](https://github.com/volkm/bibtex-dblp) — Python tool to retrieve BibTeX entries from DBLP.
 - [**Generating BibTeX from DOIs via DBLP**](https://www.joachim-breitner.de/blog/806-Generating_bibtex_bibliographies_from_DOIs_via_DBLP) — Blog post on using DBLP as a DOI-to-BibTeX resolver.

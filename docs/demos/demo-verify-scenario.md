@@ -1,7 +1,7 @@
 # verify
 Catch hallucinated citations
 ---
-$ with /make-bib, find all flaw from references.bib and correct them. ensure ALL field matches with source and write source/link as comment.
+$ with /fetch-bib, find all flaw from references.bib and correct them. ensure ALL field matches with source and write source/link as comment.
 [spinner:2500] Dispatching 6 parallel agents (8 entries each)...
 > [dim]Checking against DBLP, arXiv, CrossRef, publisher pages...[/dim]
 [spinner:3000] Verifying 48 entries...

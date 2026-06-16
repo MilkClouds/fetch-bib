@@ -1,5 +1,5 @@
 [project]
-name = "make-bib"
+name = "fetch-bib"
 version = "0.1.0"
 description = "BibTeX from authoritative sources — a Claude Code skill"
 requires-python = ">=3.10"

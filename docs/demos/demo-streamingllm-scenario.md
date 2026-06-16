@@ -1,7 +1,7 @@
 # streamingllm
 Single paper fetch — finds the right venue
 ---
-$ /make-bib StreamingLLM
+$ /fetch-bib StreamingLLM
 [spinner:1500] Searching Semantic Scholar...
 > [dim]Found: "Efficient Streaming Language Models with Attention Sinks"[/dim]
 > [dim]       arXiv:2309.17453, DBLP:conf/iclr/XiaoTCHL24[/dim]
