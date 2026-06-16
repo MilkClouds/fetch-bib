@@ -74,7 +74,7 @@ PAGE_SIZE = 100
 # use. When republishing a refreshed snapshot, point both constants at the new
 # `dblp-db-YYYY.MM` release.
 DATA_RELEASE_URL = "https://github.com/MilkClouds/fetch-bib/releases/download/dblp-db-2026.06/dblp-data.tar.gz"
-DATA_RELEASE_SHA256 = "aa64b3cb299c6062937102d1845780651dc6e93f94118d3af744584891a8fcac"
+DATA_RELEASE_SHA256 = "9fb4c6697bf9e9285c391ce4071cf30bd1af44e4d2a9be1c77b15efd90419af8"
 
 # DBLP base host. dblp.org is primary; the Trier and Dagstuhl mirrors serve the
 # same API and are useful when dblp.org rate-limits a bulk sync. Override via the
