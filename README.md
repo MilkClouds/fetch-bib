@@ -157,6 +157,18 @@ After installing, restart your Claude Code session for the skill to take effect.
 
 Or manually: clone this repo into `.claude/skills/fetch-bib` (project-level) or `~/.claude/skills/fetch-bib` (global).
 
+### Migrating from `make-bib`
+
+This plugin was renamed `make-bib` → `fetch-bib` (repo moved to `MilkClouds/fetch-bib`; old URLs redirect). If you installed the old `make-bib`, its registration breaks once the marketplace auto-updates to the new name, so re-install under the new name:
+
+```
+/plugin marketplace remove make-bib
+/plugin marketplace add MilkClouds/fetch-bib
+/plugin install fetch-bib@fetch-bib
+```
+
+Then restart Claude Code. The local DBLP database (~36 MB) re-downloads once, because the plugin's data directory is keyed by the new name. For a project-scoped install, run `/plugin install fetch-bib@fetch-bib --scope project` in that project.
+
 ## Usage
 
 ```
