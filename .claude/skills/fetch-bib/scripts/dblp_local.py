@@ -817,6 +817,7 @@ def cli_search(
 def cli_stats() -> None:
     """Show local database statistics."""
     console = Console()
+    console.print(f"[dim]data dir: {DATA_DIR}[/]")
     ensure_data(console)
     if not DATA_DIR.exists():
         console.print("[yellow]No local database found. Run 'sync' first.[/]")
@@ -921,6 +922,51 @@ def cli_reset_status(
         console.print(f"\n[green]Reset {total_reset} years. Run 'sync' to re-fetch.[/]")
     else:
         console.print("[dim]No years to reset.[/]")
+
+
+@app.command("pack")
+def cli_pack(
+    out: Annotated[
+        str,
+        typer.Option("--out", "-o", help="Output tarball path"),
+    ] = "dblp-data.tar.gz",
+) -> None:
+    """Package the local database into a release tarball.
+
+    Always archives the resolved DATA_DIR — the exact directory ``sync`` writes
+    to (it follows CLAUDE_PLUGIN_DATA / XDG_DATA_HOME). Building the asset from a
+    hand-typed path is how a release once shipped the wrong, un-synced data; this
+    command removes that guesswork and prints the sha256 for DATA_RELEASE_SHA256.
+    See docs/RELEASING.md for the full workflow.
+    """
+    console = Console()
+    console.print(f"[dim]data dir: {DATA_DIR}[/]")
+    if not DATA_DIR.exists() or not any(DATA_DIR.iterdir()):
+        console.print(f"[red]No data at {DATA_DIR}. Run 'sync' first.[/]")
+        raise typer.Exit(1)
+
+    out_path = Path(out).resolve()
+    # Archive root is DATA_DIR.name ("dblp/") so ensure_data extracts in place.
+    with tarfile.open(out_path, "w:gz") as tar:
+        tar.add(DATA_DIR, arcname=DATA_DIR.name)
+
+    digest = hashlib.sha256(out_path.read_bytes()).hexdigest()
+    total = 0
+    for path in DATA_DIR.rglob("*.json"):
+        if path.name.startswith("_"):
+            continue
+        try:
+            total += len(json.loads(path.read_text()))
+        except (json.JSONDecodeError, OSError):
+            pass
+    size_mb = out_path.stat().st_size / 1_000_000
+
+    console.print(f"[green]Packed[/] {total:,} entries -> {out_path} ({size_mb:.1f} MB)")
+    console.print(f"  sha256: [bold]{digest}[/]")
+    console.print(
+        f"\n[dim]Next: publish as dblp-db-YYYY.MM, then set DATA_RELEASE_URL to the new\n"
+        f'tag and DATA_RELEASE_SHA256 = "{digest}". See docs/RELEASING.md.[/]'
+    )
 
 
 if __name__ == "__main__":
